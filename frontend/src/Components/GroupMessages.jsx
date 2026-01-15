@@ -1,14 +1,23 @@
 import React, { useState, useEffect } from 'react';
 import ChatWindow from './ChatWindow';
 import { Search, Plus, Users as UsersIcon, Loader2, X } from 'lucide-react';
-import { conversationsAPI, userAPI, getCurrentUser } from '../services/api';
+import { conversationsAPI, userAPI } from '../services/api';
+import useChatStore from '../store/useChatStore';
 import socketService from '../services/socket';
 
 const GroupMessages = ({ initialChatId }) => {
-    const [conversations, setConversations] = useState([]);
-    const [selectedChat, setSelectedChat] = useState(null);
+    const {
+        conversations,
+        selectedChat,
+        setSelectedChat,
+        setConversations,
+        updateConversation,
+        currentUser,
+        areConversationsLoading,
+        fetchConversations
+    } = useChatStore();
+
     const [searchTerm, setSearchTerm] = useState('');
-    const [isLoading, setIsLoading] = useState(true);
     const [isCreateOpen, setIsCreateOpen] = useState(false);
     const [groupName, setGroupName] = useState('');
 
@@ -20,89 +29,78 @@ const GroupMessages = ({ initialChatId }) => {
 
     const [isSubmitting, setIsSubmitting] = useState(false);
 
-    const currentUser = getCurrentUser();
-
-    const fetchGroups = async () => {
-        try {
-            const res = await conversationsAPI.getConversations();
-            if (res.success) {
-                setConversations(res.conversations.filter(c => c.isGroup));
-            }
-        } catch (err) {
-            console.error('Failed to fetch groups:', err);
-        } finally {
-            setIsLoading(false);
-        }
-    };
-
+    // Fetch on mount if needed
     useEffect(() => {
-        fetchGroups();
-    }, []);
+        if (conversations.length === 0) {
+            fetchConversations();
+        }
+    }, [fetchConversations, conversations.length]);
 
+    // Handle Deep Link
     useEffect(() => {
         if (initialChatId && conversations.length > 0) {
-            const chat = conversations.find(c => c._id === initialChatId);
-            if (chat) {
-                handleSelectChat(chat);
+            if (selectedChat?._id !== initialChatId) {
+                const chat = conversations.find(c => c._id === initialChatId);
+                if (chat) setSelectedChat(chat);
             }
         }
-    }, [conversations, initialChatId]);
+    }, [conversations, initialChatId, selectedChat, setSelectedChat]);
 
+    // Listeners for Group Specifics (updates store)
+    // Ideally these passed to store handles or in Dashboard, but we can do here for now
     useEffect(() => {
-        socketService.socket?.on('unread-update', ({ conversationId, unreadCount }) => {
-            setConversations(prev => prev.map(c => {
-                if (c._id === conversationId && selectedChat?._id !== conversationId) {
-                    const newSettings = c.userSettings ? [...c.userSettings] : [];
-                    const userIndex = newSettings.findIndex(s => s.userId === currentUser.id);
-                    if (userIndex > -1) {
-                        newSettings[userIndex] = { ...newSettings[userIndex], unreadCount };
-                    } else {
-                        newSettings.push({ userId: currentUser.id, unreadCount });
-                    }
-                    return { ...c, userSettings: newSettings };
-                }
-                return c;
-            }));
-        });
+        const onGroupUpdated = ({ conversation }) => {
+            updateConversation(conversation);
+        };
+
+        const onGroupDeleted = ({ conversationId }) => {
+            // Remove from store
+            const newConvs = conversations.filter(c => c._id !== conversationId);
+            setConversations(newConvs);
+            if (selectedChat?._id === conversationId) {
+                setSelectedChat(null);
+            }
+        };
+
+        const onGroupJoined = ({ conversation }) => {
+            // Add if not exists
+            if (!conversations.find(c => c._id === conversation._id)) {
+                setConversations([conversation, ...conversations]);
+            }
+        };
+
+        socketService.socket?.on('group-updated', onGroupUpdated);
+        socketService.socket?.on('group-deleted', onGroupDeleted);
+        socketService.socket?.on('group-joined', onGroupJoined);
 
         return () => {
-            socketService.socket?.off('unread-update');
+            socketService.socket?.off('group-updated', onGroupUpdated);
+            socketService.socket?.off('group-deleted', onGroupDeleted);
+            socketService.socket?.off('group-joined', onGroupJoined);
         };
-    }, [selectedChat]);
+    }, [conversations, selectedChat, setConversations, setSelectedChat, updateConversation]);
+
 
     const getUnreadCount = (conv) => {
-        return conv.userSettings?.find(s => s.userId === currentUser?.id)?.unreadCount || 0;
+        return conv.userSettings?.find(s => s.userId === currentUser?.id || s.userId?._id === currentUser?.id)?.unreadCount || 0;
     };
 
     const isUnread = (conv) => {
-        const settings = conv.userSettings?.find(s => s.userId === currentUser?.id);
+        const settings = conv.userSettings?.find(s => s.userId === currentUser?.id || s.userId?._id === currentUser?.id);
         return (settings?.unreadCount || 0) > 0 || settings?.isUnread;
     };
 
-    const handleSelectChat = async (chat) => {
-        if (!chat) {
-            setSelectedChat(null);
-            return;
-        }
+    const handleSelectChat = (chat) => {
         setSelectedChat(chat);
-        // Clear unread count when opening chat
-        setConversations(prev => prev.map(c => {
-            if (c._id === chat._id) {
-                const newSettings = c.userSettings ? [...c.userSettings] : [];
-                const userIndex = newSettings.findIndex(s => s.userId === currentUser.id);
-                if (userIndex > -1) {
-                    newSettings[userIndex] = { ...newSettings[userIndex], unreadCount: 0, isUnread: false };
-                }
-                return { ...c, userSettings: newSettings };
-            }
-            return c;
-        }));
+    };
 
-        // Persist to backend
-        try {
-            await conversationsAPI.updateSettings(chat._id, 'read', true);
-        } catch (err) {
-            console.error('Failed to mark as read:', err);
+    const handleUpdateChat = (updatedChat) => {
+        if (updatedChat.isDeleted) {
+            const newConvs = conversations.filter(c => c._id !== updatedChat._id);
+            setConversations(newConvs);
+            setSelectedChat(null);
+        } else {
+            updateConversation(updatedChat);
         }
     };
 
@@ -117,7 +115,7 @@ const GroupMessages = ({ initialChatId }) => {
         try {
             const res = await userAPI.searchUsers(term);
             if (res.success) {
-                // Filter out already selected users
+                // Filter out already selected
                 const selectedIds = selectedParticipants.map(p => p._id);
                 const filtered = res.users.filter(u => !selectedIds.includes(u._id));
                 setUserSearchResults(filtered);
@@ -149,9 +147,11 @@ const GroupMessages = ({ initialChatId }) => {
         try {
             const res = await conversationsAPI.createGroup(groupName, participantIds);
             if (res.success) {
-                setConversations(prev => [res.conversation, ...prev]);
+                // Add to store
+                setConversations([res.conversation, ...conversations]);
                 socketService.socket.emit('group-created', { conversation: res.conversation });
-                socketService.joinConversation(res.conversation._id);
+
+                setSelectedChat(res.conversation);
                 setIsCreateOpen(false);
                 setGroupName('');
                 setSelectedParticipants([]);
@@ -163,62 +163,8 @@ const GroupMessages = ({ initialChatId }) => {
         }
     };
 
-    const handleUpdateChat = (updatedChat) => {
-        if (updatedChat.isDeleted) {
-            setConversations(prev => prev.filter(c => c._id !== updatedChat._id));
-            if (selectedChat?._id === updatedChat._id) {
-                handleSelectChat(null);
-            }
-        } else {
-            setConversations(prev => prev.map(c => c._id === updatedChat._id ? updatedChat : c));
-            if (selectedChat?._id === updatedChat._id) {
-                handleSelectChat(updatedChat);
-            }
-        }
-    };
-
-    useEffect(() => {
-        socketService.socket?.on('group-updated', ({ conversationId, conversation }) => {
-            setConversations(prev => prev.map(c => c._id === conversationId ? conversation : c));
-            if (selectedChat?._id === conversationId) {
-                handleSelectChat(conversation);
-            }
-        });
-
-        socketService.socket?.on('group-deleted', ({ conversationId }) => {
-            setConversations(prev => prev.filter(c => c._id !== conversationId));
-            if (selectedChat?._id === conversationId) {
-                handleSelectChat(null);
-            }
-        });
-
-        socketService.socket?.on('message-deleted', ({ messageId }) => {
-            setConversations(prev => prev.map(c => {
-                if (c.lastMessage?._id === messageId) {
-                    return { ...c, lastMessage: { ...c.lastMessage, content: 'Message deleted' } };
-                }
-                return c;
-            }));
-        });
-
-        socketService.socket?.on('group-joined', ({ conversation }) => {
-            setConversations(prev => {
-                if (prev.find(c => c._id === conversation._id)) return prev;
-                return [conversation, ...prev];
-            });
-            socketService.joinConversation(conversation._id);
-        });
-
-        return () => {
-            socketService.socket?.off('group-updated');
-            socketService.socket?.off('group-deleted');
-            socketService.socket?.off('message-deleted');
-            socketService.socket?.off('group-joined');
-        };
-    }, [selectedChat?._id]);
-
     const filteredGroups = conversations.filter(chat =>
-        chat.groupName?.toLowerCase().includes(searchTerm.toLowerCase())
+        chat.isGroup && chat.groupName?.toLowerCase().includes(searchTerm.toLowerCase())
     );
 
     return (
@@ -248,7 +194,7 @@ const GroupMessages = ({ initialChatId }) => {
                 </div>
 
                 <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
-                    {isLoading ? (
+                    {areConversationsLoading && conversations.length === 0 ? (
                         <div className="flex justify-center p-8">
                             <Loader2 className="w-6 h-6 animate-spin text-gray-500" />
                         </div>
@@ -309,7 +255,7 @@ const GroupMessages = ({ initialChatId }) => {
             </div>
 
             {/* Chat Area */}
-            <ChatWindow chat={selectedChat} onBack={() => handleSelectChat(null)} onUpdateChat={handleUpdateChat} />
+            <ChatWindow chat={selectedChat} onBack={() => setSelectedChat(null)} onUpdateChat={handleUpdateChat} />
 
             {/* Create Group Modal */}
             {isCreateOpen && (
@@ -403,5 +349,5 @@ const GroupMessages = ({ initialChatId }) => {
         </div>
     );
 };
-
 export default GroupMessages;
+    

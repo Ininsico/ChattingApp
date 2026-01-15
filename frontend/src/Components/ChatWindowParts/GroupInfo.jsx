@@ -49,8 +49,8 @@ const GroupInfo = ({ chat, currentUser, onClose, onUpdateChat, onBack }) => {
                 onUpdateChat({ _id: chat._id, isDeleted: true });
                 onBack();
             }
-        } catch (err) {
-            alert('Failed to delete group');
+        } catch {
+            alert('Operation failed');
         }
     };
 

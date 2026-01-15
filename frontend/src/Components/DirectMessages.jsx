@@ -1,128 +1,65 @@
 import React, { useState, useEffect } from 'react';
 import ChatWindow from './ChatWindow';
 import { Search, UserPlus, X, Loader2, Bell } from 'lucide-react';
-import { conversationsAPI, userAPI, getCurrentUser } from '../services/api';
-import socketService from '../services/socket';
+import { conversationsAPI, userAPI } from '../services/api';
+import useChatStore from '../store/useChatStore';
 
 const DirectMessages = ({ initialChatId }) => {
-    const [conversations, setConversations] = useState([]);
-    const [selectedChat, setSelectedChat] = useState(null);
+    const {
+        conversations,
+        selectedChat,
+        setSelectedChat,
+        currentUser,
+        areConversationsLoading,
+        fetchConversations,
+        updateConversation,
+        setConversations
+    } = useChatStore();
+
     const [searchTerm, setSearchTerm] = useState('');
     const [isNewChatOpen, setIsNewChatOpen] = useState(false);
     const [userSearchEmail, setUserSearchEmail] = useState('');
     const [searchResults, setSearchResults] = useState([]);
     const [isSearching, setIsSearching] = useState(false);
-    const [isLoading, setIsLoading] = useState(true);
 
     const [filter, setFilter] = useState('all'); // 'all' | 'unread'
 
-    const currentUser = getCurrentUser();
-
-    const fetchConversations = async () => {
-        try {
-            const res = await conversationsAPI.getConversations();
-            if (res.success) setConversations(res.conversations);
-        } catch (err) {
-            console.error('Failed to fetch:', err);
-        } finally {
-            setIsLoading(false);
-        }
-    };
-
+    // Fetch conversations on mount if empty
     useEffect(() => {
-        fetchConversations();
+        // We fetch if we have none. Dashboard usually handles init but safe to have here.
+        if (conversations.length === 0) {
+            fetchConversations();
+        }
+    }, [fetchConversations, conversations.length]);
 
-        socketService.onNewMessage(({ conversationId, message }) => {
-            setConversations(prev => {
-                const index = prev.findIndex(c => c._id === conversationId);
-                if (index === -1) {
-                    fetchConversations();
-                    return prev;
-                }
-                const updated = [...prev];
-                updated[index] = { ...updated[index], lastMessage: message, lastMessageAt: message.createdAt };
-                const item = updated.splice(index, 1)[0];
-                updated.unshift(item);
-                return updated;
-            });
-        });
-
-        return () => {
-            socketService.off('new-message');
-        };
-    }, []);
-
+    // Handle Deep Link / Initial Selection
     useEffect(() => {
         if (initialChatId && conversations.length > 0) {
-            const chat = conversations.find(c => c._id === initialChatId);
-            if (chat) {
-                handleSelectChat(chat);
+            // Only select if not already selected to avoid loop
+            if (selectedChat?._id !== initialChatId) {
+                const chat = conversations.find(c => c._id === initialChatId);
+                if (chat) {
+                    setSelectedChat(chat);
+                }
             }
         }
-    }, [conversations, initialChatId]);
-
-    useEffect(() => {
-        socketService.socket?.on('unread-update', ({ conversationId, unreadCount }) => {
-            setConversations(prev => prev.map(c => {
-                if (c._id === conversationId && selectedChat?._id !== conversationId) {
-                    const newSettings = c.userSettings ? [...c.userSettings] : [];
-                    const userIndex = newSettings.findIndex(s => s.userId === currentUser.id);
-                    if (userIndex > -1) {
-                        newSettings[userIndex] = { ...newSettings[userIndex], unreadCount };
-                    } else {
-                        newSettings.push({ userId: currentUser.id, unreadCount });
-                    }
-                    return { ...c, userSettings: newSettings };
-                }
-                return c;
-            }));
-        });
-
-        return () => {
-            socketService.socket?.off('unread-update');
-        };
-    }, [selectedChat]);
+    }, [conversations, initialChatId, selectedChat, setSelectedChat]);
 
     const getUnreadCount = (conv) => {
-        return conv.userSettings?.find(s => s.userId === currentUser?.id)?.unreadCount || 0;
+        return conv.userSettings?.find(s => s.userId === currentUser?.id || s.userId?._id === currentUser?.id)?.unreadCount || 0;
     };
 
     const isUnread = (conv) => {
-        const settings = conv.userSettings?.find(s => s.userId === currentUser?.id);
+        const settings = conv.userSettings?.find(s => s.userId === currentUser?.id || s.userId?._id === currentUser?.id);
         return (settings?.unreadCount || 0) > 0 || settings?.isUnread;
     };
 
-    const handleSelectChat = async (chat) => {
-        setSelectedChat(chat);
-        // Clear unread count when opening chat
-        if (chat) {
-            // Optimistically update UI
-            setConversations(prev => prev.map(c => {
-                if (c._id === chat._id) {
-                    const newSettings = c.userSettings ? [...c.userSettings] : [];
-                    const userIndex = newSettings.findIndex(s => s.userId === currentUser.id);
-                    if (userIndex > -1) {
-                        newSettings[userIndex] = { ...newSettings[userIndex], unreadCount: 0, isUnread: false };
-                    }
-                    return { ...c, userSettings: newSettings };
-                }
-                return c;
-            }));
-
-            // Persist to backend
-            try {
-                await conversationsAPI.updateSettings(chat._id, 'read', true);
-            } catch (err) {
-                console.error('Failed to mark as read:', err);
-            }
-        }
+    const handleSelectChat = (chat) => {
+        setSelectedChat(chat); // Store action handles marking as read and fetching messages
     };
 
     const handleUpdateChat = (updatedChat) => {
-        setConversations(prev => prev.map(c => c._id === updatedChat._id ? updatedChat : c));
-        if (selectedChat?._id === updatedChat._id) {
-            setSelectedChat(updatedChat);
-        }
+        updateConversation(updatedChat);
     };
 
     const handleSearchUsers = async (e) => {
@@ -148,14 +85,16 @@ const DirectMessages = ({ initialChatId }) => {
             if (res.success) {
                 const newChat = res.conversation;
 
-                // Add to list if not exists
-                setConversations(prev => {
-                    const exists = prev.find(c => c._id === newChat._id);
-                    if (exists) return prev;
-                    return [newChat, ...prev];
-                });
+                // Add to store if not exists
+                // We can use a specialized action or just refetch or manually update list
+                // Since 'conversations' is in store, let's update it.
+                // Best practice: define `addConversation` in store, but for now:
+                const exists = conversations.find(c => c._id === newChat._id);
+                if (!exists) {
+                    setConversations([newChat, ...conversations]);
+                }
 
-                handleSelectChat(newChat);
+                setSelectedChat(newChat);
                 setIsNewChatOpen(false);
                 setUserSearchEmail('');
                 setSearchResults([]);
@@ -167,6 +106,7 @@ const DirectMessages = ({ initialChatId }) => {
 
     const filteredConversations = conversations.filter(conv => {
         if (conv.isGroup) return false;
+
         const currentUserId = currentUser?.id || currentUser?._id;
         const other = conv.participants.find(p => (p._id || p.id) !== currentUserId);
         const matchesSearch = other?.name.toLowerCase().includes(searchTerm.toLowerCase());
@@ -215,7 +155,7 @@ const DirectMessages = ({ initialChatId }) => {
                 </div>
 
                 <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-white/10">
-                    {isLoading ? (
+                    {areConversationsLoading && conversations.length === 0 ? (
                         <div className="flex justify-center p-8"><Loader2 className="w-6 h-6 animate-spin text-gray-500" /></div>
                     ) : filteredConversations.length === 0 ? (
                         <div className="p-8 text-center text-gray-500 text-sm">No conversations yet. Start a new chat!</div>
@@ -251,7 +191,7 @@ const DirectMessages = ({ initialChatId }) => {
                     )}
                 </div>
             </div>
-            <ChatWindow chat={selectedChat} onBack={() => handleSelectChat(null)} onUpdateChat={handleUpdateChat} />
+            <ChatWindow chat={selectedChat} onBack={() => setSelectedChat(null)} onUpdateChat={handleUpdateChat} />
 
             {isNewChatOpen && (
                 <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-sm">

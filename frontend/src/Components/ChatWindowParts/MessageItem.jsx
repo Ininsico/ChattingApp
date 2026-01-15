@@ -72,7 +72,6 @@ const MessageItem = ({
     isSelectionMode,
     isSelected,
     handleSelectMessage,
-    isMatched,
     isCurrentMatch,
     pinnedMessages,
     starredMessages,
@@ -92,22 +91,22 @@ const MessageItem = ({
 
     const getReadStatus = () => {
         if (!isMe || !chat) return null;
-        
+
         if (!chat.userSettings) return 'sent';
 
         if (!chat.isGroup) {
             const otherSettings = chat.userSettings.find(s => {
-                 const sId = s.userId?._id || s.userId;
-                 return sId !== currentUser?.id;
+                const sId = s.userId?._id || s.userId;
+                return sId !== currentUser?.id;
             });
             if (!otherSettings) return 'sent';
-            
+
             const lastRead = new Date(otherSettings.lastReadAt);
             const msgTime = new Date(msg.createdAt);
-            
+
             return lastRead >= msgTime ? 'read' : 'sent';
         }
-        
+
         return 'sent'; // Fallback for groups
     };
 
@@ -243,7 +242,7 @@ const MessageItem = ({
                         </div>
                     </div>
                 </div>
-                
+
                 <div className={`flex items-center gap-1 mt-1.5 ml-1 ${isMe ? 'justify-end' : 'justify-start'}`}>
                     <p className="text-[10px] text-gray-600 font-medium">{new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
                     {isMe && readStatus && (

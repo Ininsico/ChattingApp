@@ -69,8 +69,8 @@ const ChatHeader = ({
             alert(mutedUntil ? `Chat muted until ${mutedUntil.toLocaleString()}` : 'Chat unmuted');
             setIsMenuOpen(false);
             setShowMuteOptions(false);
-        } catch (err) {
-            console.error(err);
+        } catch {
+            console.error('Failed to update mute settings');
             alert('Failed to update mute settings');
         }
     };
@@ -119,7 +119,7 @@ const ChatHeader = ({
             onUpdateChat(updatedChat);
 
             setIsMenuOpen(false);
-        } catch (err) {
+        } catch {
             alert('Failed to clear chat');
         }
     };
@@ -130,8 +130,8 @@ const ChatHeader = ({
             try {
                 await conversationsAPI.reportConversation(chat._id, reason);
                 alert("Report submitted. Thank you for helping keep our community safe.");
-            } catch (err) {
-                alert('Failed to submit report');
+            } catch {
+                alert('Failed to clear chat');
             }
         }
         setIsMenuOpen(false);

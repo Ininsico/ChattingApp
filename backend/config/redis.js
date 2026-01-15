@@ -21,42 +21,33 @@ try {
         socket: {
             host: process.env.REDIS_HOST || '127.0.0.1',
             port: process.env.REDIS_PORT || 6379,
+            connectTimeout: 2000,
             reconnectStrategy: (retries) => {
-                if (retries > 1) {
-                    if (!redisErrorShown) {
-                        console.log('ℹ️ Redis not found or connection refused. Switching to In-Memory store.');
-                        redisErrorShown = true;
-                    }
-                    return false; // Stop retrying immediately after first failure to avoid spam
-                }
-                return 1000;
+                if (!isUsingRedis) return false;
+                return Math.min(retries * 100, 3000);
             }
         }
     });
 
     client.on('error', (err) => {
-        // Suppress all redis errors unless we successfully connected at least once
         if (isUsingRedis) {
-            console.error('❌ Redis Error:', err.message);
+            console.error('❌ Redis Connection Lost:', err.message);
+            isUsingRedis = false;
         }
     });
 
     client.on('connect', () => {
         console.log('✅ Redis Connected');
         isUsingRedis = true;
-        redisErrorShown = false;
     });
 
     client.connect().catch(() => {
-        if (!redisErrorShown) {
-            console.log('ℹ️ Redis not found. Using In-Memory store.');
-            redisErrorShown = true;
-        }
+        console.log('ℹ️  Using In-Memory Store (Redis not available)');
     });
 
     redisClient = client;
 } catch (err) {
-    console.log('ℹ️ Redis library not found. Using In-Memory store.');
+    console.log('ℹ️  Redis library not found or failed to initialize. Using In-Memory store.');
 }
 
 // Helper functions for user online status

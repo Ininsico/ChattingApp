@@ -201,7 +201,7 @@ export const getCurrentUser = () => {
             user._id = id;
         }
         return user;
-    } catch (e) {
+    } catch {
         return null;
     }
 };
