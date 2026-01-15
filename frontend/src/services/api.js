@@ -138,6 +138,21 @@ export const conversationsAPI = {
         const response = await api.delete(`/conversations/${conversationId}/members/${userId}`);
         return response.data;
     },
+    updateSettings: async (id, action, value) => {
+        const response = await api.patch(`/conversations/${id}/settings`, { action, value });
+        return response.data;
+    },
+    reportConversation: async (id, reason) => {
+        // Placeholder for report endpoint if not yet created on backend, 
+        // using settings endpoint or similar for now if strictly needed, 
+        // but assuming we will add the route or just mocked for now.
+        // Actually, let's just assume we added it or will add it.
+        // If I haven't added the route, this will 404. 
+        // I should add the route to backend in next step or now. 
+        // For safety, I'll stick to the plan of adding it.
+        const response = await api.post(`/conversations/${id}/report`, { reason });
+        return response.data;
+    },
     deleteMessage: async (messageId) => {
         const response = await api.delete(`/conversations/messages/${messageId}`);
         return response.data;

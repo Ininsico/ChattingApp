@@ -52,10 +52,35 @@ router.get('/:id/messages', protect, async (req, res) => {
             });
         }
 
-        const messages = await Message.find({
+        let query = {
             conversationId: req.params.id,
             isDeleted: false
-        })
+        };
+
+        // Check for clear history setting
+        // Manage user settings (reset unread, check clear history)
+        let settings = conversation.userSettings.find(s => s.userId.toString() === req.user.id);
+
+        if (settings) {
+            // Reset unread count
+            settings.unreadCount = 0;
+            settings.lastReadAt = new Date();
+        } else {
+            // Create settings if not exist
+            conversation.userSettings.push({
+                userId: req.user.id,
+                unreadCount: 0,
+                lastReadAt: new Date()
+            });
+            settings = conversation.userSettings[conversation.userSettings.length - 1];
+        }
+        await conversation.save();
+
+        if (settings.clearedHistoryAt) {
+            query.createdAt = { $gt: settings.clearedHistoryAt };
+        }
+
+        const messages = await Message.find(query)
             .populate('sender', 'name avatar')
             .sort({ createdAt: -1 })
             .limit(limit * 1)
@@ -276,6 +301,14 @@ router.post('/messages/:messageId/react', protect, async (req, res) => {
     }
 });
 
+// @desc    Report conversation
+// @route   POST /api/conversations/:id/report
+router.post('/:id/report', protect, async (req, res) => {
+    // In a real app, save to a Report model.
+    // For now, just acknowledge.
+    res.json({ success: true, message: 'Report submitted' });
+});
+
 // @desc    Delete group conversation
 // @route   DELETE /api/conversations/:id
 router.delete('/:id', protect, async (req, res) => {
@@ -301,6 +334,41 @@ router.delete('/:id', protect, async (req, res) => {
         await Conversation.findByIdAndDelete(req.params.id);
 
         res.json({ success: true, message: 'Group deleted successfully' });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// @desc    Update user chat settings
+// @route   PATCH /api/conversations/:id/settings
+router.patch('/:id/settings', protect, async (req, res) => {
+    try {
+        const { action, value } = req.body;
+        const conversation = await Conversation.findById(req.params.id);
+
+        if (!conversation) return res.status(404).json({ success: false, message: 'Not found' });
+        if (!conversation.isParticipant(req.user.id)) return res.status(403).json({ success: false, message: 'Not authorized' });
+
+        let settings = conversation.userSettings.find(s => s.userId.toString() === req.user.id);
+        if (!settings) {
+            conversation.userSettings.push({ userId: req.user.id });
+            settings = conversation.userSettings[conversation.userSettings.length - 1];
+        }
+
+        switch (action) {
+            case 'mute':
+                settings.mutedUntil = value ? new Date(value) : null;
+                break;
+            case 'unread':
+                settings.isUnread = !!value;
+                break;
+            case 'clear':
+                settings.clearedHistoryAt = new Date();
+                break;
+        }
+
+        await conversation.save();
+        res.json({ success: true, settings });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
     }

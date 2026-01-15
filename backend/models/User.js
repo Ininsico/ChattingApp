@@ -27,15 +27,29 @@ const userSchema = new mongoose.Schema({
         type: String,
         default: 'https://images.unsplash.com/photo-1599566150163-29194dcaad36?w=200&auto=format&fit=crop&q=60'
     },
+    banner: {
+        type: String,
+        default: ''
+    },
+    avatarVisibility: {
+        type: String,
+        enum: ['everyone', 'contacts'],
+        default: 'everyone'
+    },
     bio: {
         type: String,
         default: '',
         maxlength: [200, 'Bio cannot exceed 200 characters']
     },
-    status: {
+    status: { // System status (online/offline)
         type: String,
-        enum: ['online', 'offline', 'away', 'busy'],
+        enum: ['online', 'offline'],
         default: 'offline'
+    },
+    availabilityStatus: { // User set status
+        type: String,
+        enum: ['available', 'busy', 'meeting', 'away', 'dnd'],
+        default: 'available'
     },
     customStatus: {
         type: String,
@@ -45,6 +59,40 @@ const userSchema = new mongoose.Schema({
         type: String,
         default: ''
     },
+    secondaryEmail: {
+        type: String,
+        trim: true,
+        match: [/^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/, 'Please enter a valid secondary email']
+    },
+    country: {
+        type: String,
+        default: ''
+    },
+    department: { type: String, default: '' },
+    role: { type: String, default: '' },
+    employeeId: { type: String, default: '' },
+    reportingManager: { type: String, default: '' },
+    workingHours: {
+        start: { type: String, default: '09:00' },
+        end: { type: String, default: '18:00' }
+    },
+    loginMethod: {
+        type: String,
+        default: 'email'
+    },
+    tokenVersion: {
+        type: Number,
+        default: 0
+    },
+    activeSessions: {
+        type: Number,
+        default: 0
+    },
+    loginHistory: [{
+        date: { type: Date, default: Date.now },
+        ip: String,
+        device: String
+    }],
     lastSeen: {
         type: Date,
         default: Date.now

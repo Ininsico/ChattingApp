@@ -31,6 +31,14 @@ exports.protect = async (req, res, next) => {
                 });
             }
 
+            // Check token version for logout-all feature
+            if (decoded.tokenVersion !== undefined && req.user.tokenVersion !== decoded.tokenVersion) {
+                return res.status(401).json({
+                    success: false,
+                    message: 'Session expired, please login again'
+                });
+            }
+
             next();
         } catch (error) {
             return res.status(401).json({

@@ -28,7 +28,33 @@ const conversationSchema = new mongoose.Schema({
     lastMessageAt: {
         type: Date,
         default: Date.now
-    }
+    },
+    userSettings: [{
+        userId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'User'
+        },
+        mutedUntil: {
+            type: Date,
+            default: null
+        },
+        isUnread: {
+            type: Boolean,
+            default: false
+        },
+        clearedHistoryAt: {
+            type: Date,
+            default: null
+        },
+        unreadCount: {
+            type: Number,
+            default: 0
+        },
+        lastReadAt: {
+            type: Date,
+            default: Date.now
+        }
+    }]
 }, {
     timestamps: true
 });

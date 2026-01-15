@@ -1,18 +1,23 @@
 import React, { useState, useEffect } from 'react';
 import ChatWindow from './ChatWindow';
 import { Search, Plus, Users as UsersIcon, Loader2, X } from 'lucide-react';
-import { conversationsAPI, friendsAPI, getCurrentUser } from '../services/api';
+import { conversationsAPI, userAPI, getCurrentUser } from '../services/api';
 import socketService from '../services/socket';
 
-const GroupMessages = () => {
+const GroupMessages = ({ initialChatId }) => {
     const [conversations, setConversations] = useState([]);
     const [selectedChat, setSelectedChat] = useState(null);
     const [searchTerm, setSearchTerm] = useState('');
     const [isLoading, setIsLoading] = useState(true);
     const [isCreateOpen, setIsCreateOpen] = useState(false);
     const [groupName, setGroupName] = useState('');
-    const [friends, setFriends] = useState([]);
-    const [selectedFriends, setSelectedFriends] = useState([]);
+    
+    // Member selection states
+    const [selectedParticipants, setSelectedParticipants] = useState([]); // Array of user objects
+    const [userSearchTerm, setUserSearchTerm] = useState('');
+    const [userSearchResults, setUserSearchResults] = useState([]);
+    const [isSearchingUsers, setIsSearchingUsers] = useState(false);
+    
     const [isSubmitting, setIsSubmitting] = useState(false);
 
     const currentUser = getCurrentUser();
@@ -30,35 +35,113 @@ const GroupMessages = () => {
         }
     };
 
-    const fetchFriends = async () => {
+    useEffect(() => {
+        fetchGroups();
+    }, []);
+
+    useEffect(() => {
+        if (initialChatId && conversations.length > 0) {
+            const chat = conversations.find(c => c._id === initialChatId);
+            if (chat) {
+                handleSelectChat(chat);
+            }
+        }
+    }, [conversations, initialChatId]);
+
+    useEffect(() => {
+        socketService.socket?.on('unread-update', ({ conversationId, unreadCount }) => {
+            setConversations(prev => prev.map(c => {
+                if (c._id === conversationId && selectedChat?._id !== conversationId) {
+                    const newSettings = c.userSettings ? [...c.userSettings] : [];
+                    const userIndex = newSettings.findIndex(s => s.userId === currentUser.id);
+                    if (userIndex > -1) {
+                        newSettings[userIndex] = { ...newSettings[userIndex], unreadCount };
+                    } else {
+                        newSettings.push({ userId: currentUser.id, unreadCount });
+                    }
+                    return { ...c, userSettings: newSettings };
+                }
+                return c;
+            }));
+        });
+
+        return () => {
+            socketService.socket?.off('unread-update');
+        };
+    }, [selectedChat]);
+
+    const getUnreadCount = (conv) => {
+        return conv.userSettings?.find(s => s.userId === currentUser?.id)?.unreadCount || 0;
+    };
+
+    const handleSelectChat = (chat) => {
+        if (!chat) {
+            setSelectedChat(null);
+            return;
+        }
+        setSelectedChat(chat);
+        setConversations(prev => prev.map(c => {
+            if (c._id === chat._id) {
+                const newSettings = c.userSettings ? [...c.userSettings] : [];
+                const userIndex = newSettings.findIndex(s => s.userId === currentUser.id);
+                if (userIndex > -1) {
+                    newSettings[userIndex] = { ...newSettings[userIndex], unreadCount: 0 };
+                }
+                return { ...c, userSettings: newSettings };
+            }
+            return c;
+        }));
+    };
+
+    const handleSearchUsers = async (term) => {
+        setUserSearchTerm(term);
+        if (!term.trim()) {
+            setUserSearchResults([]);
+            return;
+        }
+
+        setIsSearchingUsers(true);
         try {
-            const res = await friendsAPI.getFriends();
+            const res = await userAPI.searchUsers(term);
             if (res.success) {
-                setFriends(res.friends);
+                // Filter out already selected users
+                const selectedIds = selectedParticipants.map(p => p._id);
+                const filtered = res.users.filter(u => !selectedIds.includes(u._id));
+                setUserSearchResults(filtered);
             }
         } catch (err) {
-            console.error('Failed to fetch friends:', err);
+            console.error('User search failed:', err);
+        } finally {
+            setIsSearchingUsers(false);
         }
     };
 
-    useEffect(() => {
-        fetchGroups();
-        fetchFriends();
-    }, []);
+    const addParticipant = (user) => {
+        setSelectedParticipants(prev => [...prev, user]);
+        setUserSearchResults(prev => prev.filter(u => u._id !== user._id));
+        setUserSearchTerm('');
+    };
+
+    const removeParticipant = (userId) => {
+        setSelectedParticipants(prev => prev.filter(p => p._id !== userId));
+    };
 
     const handleCreateGroup = async (e) => {
         e.preventDefault();
-        if (!groupName || selectedFriends.length < 2) return;
+        const participantIds = selectedParticipants.map(p => p._id);
+        
+        if (!groupName || participantIds.length < 2) return;
+        
         setIsSubmitting(true);
         try {
-            const res = await conversationsAPI.createGroup(groupName, selectedFriends);
+            const res = await conversationsAPI.createGroup(groupName, participantIds);
             if (res.success) {
                 setConversations(prev => [res.conversation, ...prev]);
                 socketService.socket.emit('group-created', { conversation: res.conversation });
                 socketService.joinConversation(res.conversation._id);
                 setIsCreateOpen(false);
                 setGroupName('');
-                setSelectedFriends([]);
+                setSelectedParticipants([]);
             }
         } catch (err) {
             console.error('Group creation failed:', err);
@@ -71,12 +154,12 @@ const GroupMessages = () => {
         if (updatedChat.isDeleted) {
             setConversations(prev => prev.filter(c => c._id !== updatedChat._id));
             if (selectedChat?._id === updatedChat._id) {
-                setSelectedChat(null);
+                handleSelectChat(null);
             }
         } else {
             setConversations(prev => prev.map(c => c._id === updatedChat._id ? updatedChat : c));
             if (selectedChat?._id === updatedChat._id) {
-                setSelectedChat(updatedChat);
+                handleSelectChat(updatedChat);
             }
         }
     };
@@ -85,14 +168,14 @@ const GroupMessages = () => {
         socketService.socket?.on('group-updated', ({ conversationId, conversation }) => {
             setConversations(prev => prev.map(c => c._id === conversationId ? conversation : c));
             if (selectedChat?._id === conversationId) {
-                setSelectedChat(conversation);
+                handleSelectChat(conversation);
             }
         });
 
         socketService.socket?.on('group-deleted', ({ conversationId }) => {
             setConversations(prev => prev.filter(c => c._id !== conversationId));
             if (selectedChat?._id === conversationId) {
-                setSelectedChat(null);
+                handleSelectChat(null);
             }
         });
 
@@ -120,12 +203,6 @@ const GroupMessages = () => {
             socketService.socket?.off('group-joined');
         };
     }, [selectedChat?._id]);
-
-    const toggleFriend = (id) => {
-        setSelectedFriends(prev =>
-            prev.includes(id) ? prev.filter(f => f !== id) : [...prev, id]
-        );
-    };
 
     const filteredGroups = conversations.filter(chat =>
         chat.groupName?.toLowerCase().includes(searchTerm.toLowerCase())
@@ -170,7 +247,7 @@ const GroupMessages = () => {
                         filteredGroups.map(chat => (
                             <div
                                 key={chat._id}
-                                onClick={() => setSelectedChat(chat)}
+                                onClick={() => handleSelectChat(chat)}
                                 className={`p-4 mx-3 my-1 rounded-xl flex items-center gap-4 cursor-pointer transition-all duration-300 ${selectedChat?._id === chat._id
                                     ? 'bg-[#8b5cf6] shadow-lg shadow-[#8b5cf6]/30 text-white'
                                     : 'hover:bg-white/5 text-white/70'
@@ -192,9 +269,16 @@ const GroupMessages = () => {
                                         <h3 className="font-semibold text-sm truncate">
                                             {chat.groupName}
                                         </h3>
-                                        <span className="text-[10px] opacity-60 flex-shrink-0 ml-2 font-medium">
-                                            {chat.lastMessageAt ? new Date(chat.lastMessageAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
-                                        </span>
+                                        <div className="flex flex-col items-end">
+                                            <span className="text-[10px] opacity-60 flex-shrink-0 ml-2 font-medium">
+                                                {chat.lastMessageAt ? new Date(chat.lastMessageAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
+                                            </span>
+                                            {getUnreadCount(chat) > 0 && (
+                                                <span className="bg-white text-[#8b5cf6] text-[10px] font-bold px-1.5 min-w-[1.2rem] h-5 rounded-full flex items-center justify-center mt-1 shadow-sm">
+                                                    {getUnreadCount(chat)}
+                                                </span>
+                                            )}
+                                        </div>
                                     </div>
                                     <div className="flex justify-between items-center">
                                         <p className={`text-xs truncate font-medium ${selectedChat?._id === chat._id ? 'opacity-90' : 'opacity-50'}`}>
@@ -212,18 +296,18 @@ const GroupMessages = () => {
             </div>
 
             {/* Chat Area */}
-            <ChatWindow chat={selectedChat} onBack={() => setSelectedChat(null)} onUpdateChat={handleUpdateChat} />
+            <ChatWindow chat={selectedChat} onBack={() => handleSelectChat(null)} onUpdateChat={handleUpdateChat} />
 
             {/* Create Group Modal */}
             {isCreateOpen && (
                 <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-                    <div className="w-full max-w-md bg-[#13131a] rounded-3xl border border-white/10 p-8 shadow-2xl relative">
-                        <button onClick={() => setIsCreateOpen(false)} className="absolute top-4 right-4 text-gray-500 hover:text-white">
+                    <div className="w-full max-w-md bg-[#13131a] rounded-3xl border border-white/10 p-8 shadow-2xl relative animate-in zoom-in duration-300 flex flex-col max-h-[90vh]">
+                        <button onClick={() => { setIsCreateOpen(false); setSelectedParticipants([]); }} className="absolute top-4 right-4 text-gray-500 hover:text-white">
                             <X size={20} />
                         </button>
                         <h3 className="text-2xl font-bold text-white mb-6">Create New Group</h3>
 
-                        <form onSubmit={handleCreateGroup} className="space-y-6">
+                        <form onSubmit={handleCreateGroup} className="space-y-6 flex flex-col flex-1 overflow-hidden">
                             <div>
                                 <label className="text-xs text-gray-400 mb-2 block uppercase tracking-wider font-bold">Group Name</label>
                                 <input
@@ -236,35 +320,68 @@ const GroupMessages = () => {
                                 />
                             </div>
 
-                            <div>
-                                <label className="text-xs text-gray-400 mb-2 block uppercase tracking-wider font-bold">Select Members (Min 2)</label>
-                                <div className="max-h-48 overflow-y-auto space-y-2 pr-2 scrollbar-thin scrollbar-thumb-white/10">
-                                    {friends.length === 0 ? (
-                                        <p className="text-gray-500 text-sm py-4 italic text-center">No friends found. Add some friends first!</p>
-                                    ) : (
-                                        friends.map(friend => (
-                                            <div
-                                                key={friend._id}
-                                                onClick={() => toggleFriend(friend._id)}
-                                                className={`p-3 rounded-xl border cursor-pointer transition-all flex items-center gap-3 ${selectedFriends.includes(friend._id)
-                                                    ? 'bg-[#8b5cf6]/20 border-[#8b5cf6] text-white'
-                                                    : 'bg-white/5 border-white/5 text-gray-400 hover:bg-white/10'
-                                                    }`}
+                            <div className="flex-1 flex flex-col min-h-0">
+                                <label className="text-xs text-gray-400 mb-2 block uppercase tracking-wider font-bold">Add Members (Min 2)</label>
+                                
+                                {/* Selected Members Chips */}
+                                <div className="flex flex-wrap gap-2 mb-3">
+                                    {selectedParticipants.map(participant => (
+                                        <div key={participant._id} className="bg-[#8b5cf6]/20 border border-[#8b5cf6]/50 text-white text-xs px-2 py-1 rounded-lg flex items-center gap-1">
+                                            <span>{participant.name}</span>
+                                            <button 
+                                                type="button" 
+                                                onClick={() => removeParticipant(participant._id)}
+                                                className="hover:text-red-400"
                                             >
-                                                <img src={friend.avatar} alt="" className="w-8 h-8 rounded-full" />
-                                                <span className="text-sm font-medium">{friend.name}</span>
+                                                <X size={12} />
+                                            </button>
+                                        </div>
+                                    ))}
+                                </div>
+
+                                {/* User Search */}
+                                <div className="relative mb-3">
+                                    <input 
+                                        type="text" 
+                                        value={userSearchTerm}
+                                        onChange={(e) => handleSearchUsers(e.target.value)}
+                                        placeholder="Search people to add..."
+                                        className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white outline-none focus:border-[#8b5cf6]"
+                                    />
+                                    {isSearchingUsers && <Loader2 className="absolute right-3 top-3 w-5 h-5 animate-spin text-gray-500" />}
+                                </div>
+
+                                {/* Search Results */}
+                                <div className="flex-1 overflow-y-auto space-y-2 pr-2 scrollbar-thin scrollbar-thumb-white/10 bg-black/20 rounded-xl p-2">
+                                    {userSearchResults.length > 0 ? (
+                                        userSearchResults.map(user => (
+                                            <div
+                                                key={user._id}
+                                                onClick={() => addParticipant(user)}
+                                                className="p-2 rounded-lg hover:bg-[#8b5cf6]/20 cursor-pointer flex items-center gap-3 transition-colors"
+                                            >
+                                                <img src={user.avatar} alt="" className="w-8 h-8 rounded-full" />
+                                                <div className="flex-1 min-w-0">
+                                                    <p className="text-sm font-medium text-white truncate">{user.name}</p>
+                                                    <p className="text-xs text-gray-500 truncate">{user.email}</p>
+                                                </div>
+                                                <Plus size={16} className="text-[#8b5cf6]" />
                                             </div>
                                         ))
+                                    ) : userSearchTerm && !isSearchingUsers ? (
+                                        <p className="text-gray-500 text-xs text-center py-2">No users found</p>
+                                    ) : (
+                                        <p className="text-gray-500 text-xs text-center py-2">Type to search users</p>
                                     )}
                                 </div>
                             </div>
 
                             <button
                                 type="submit"
-                                disabled={isSubmitting || !groupName || selectedFriends.length < 2}
-                                className="w-full py-4 bg-[#8b5cf6] hover:bg-[#7c3aed] text-white rounded-xl font-bold transition-all disabled:opacity-50 flex justify-center items-center shadow-lg shadow-[#8b5cf6]/20"
+                                disabled={isSubmitting || !groupName || selectedParticipants.length < 2}
+                                className="w-full py-4 bg-[#8b5cf6] hover:bg-[#7c3aed] text-white rounded-xl font-bold transition-all disabled:opacity-50 flex justify-center items-center shadow-lg shadow-[#8b5cf6]/20 mt-auto"
                             >
-                                {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Create Awesome Group'}
+                                {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin" /> : `Create Group (${selectedParticipants.length})`}
                             </button>
                         </form>
                     </div>

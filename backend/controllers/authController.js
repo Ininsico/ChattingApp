@@ -2,8 +2,9 @@ const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 
 // Generate JWT Token
-const generateToken = (userId) => {
-    return jwt.sign({ id: userId }, process.env.JWT_SECRET, {
+// Generate JWT Token
+const generateToken = (user) => {
+    return jwt.sign({ id: user._id, tokenVersion: user.tokenVersion || 0 }, process.env.JWT_SECRET, {
         expiresIn: process.env.JWT_EXPIRE || '7d'
     });
 };
@@ -40,7 +41,7 @@ exports.register = async (req, res) => {
         });
 
         // Generate token
-        const token = generateToken(user._id);
+        const token = generateToken(user);
 
         res.status(201).json({
             success: true,
@@ -98,13 +99,25 @@ exports.login = async (req, res) => {
             });
         }
 
-        // Update status to online
+        // Update status and history
         user.status = 'online';
         user.lastSeen = new Date();
+        user.activeSessions = (user.activeSessions || 0) + 1;
+        user.loginHistory.push({
+            date: new Date(),
+            ip: req.ip,
+            device: req.headers['user-agent'] || 'Unknown'
+        });
+
+        // Keep only last 10 login history
+        if (user.loginHistory.length > 10) {
+            user.loginHistory = user.loginHistory.slice(user.loginHistory.length - 10);
+        }
+
         await user.save();
 
         // Generate token
-        const token = generateToken(user._id);
+        const token = generateToken(user);
 
         res.status(200).json({
             success: true,
@@ -170,6 +183,34 @@ exports.logout = async (req, res) => {
         res.status(500).json({
             success: false,
             message: 'Error logging out',
+            error: error.message
+        });
+    }
+};
+
+// @desc    Logout from all devices
+// @route   POST /api/auth/logout-all
+// @access  Private
+exports.logoutAll = async (req, res) => {
+    try {
+        const user = await User.findById(req.user.id);
+
+        // Increment token version to invalidate all old tokens
+        user.tokenVersion = (user.tokenVersion || 0) + 1;
+        user.status = 'offline';
+        user.activeSessions = 0;
+
+        await user.save();
+
+        res.status(200).json({
+            success: true,
+            message: 'Logged out from all devices'
+        });
+    } catch (error) {
+        console.error('Logout All Error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error logging out from all devices',
             error: error.message
         });
     }

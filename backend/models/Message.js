@@ -25,6 +25,18 @@ const messageSchema = new mongoose.Schema({
     fileUrl: {
         type: String
     },
+    fileName: {
+        type: String
+    },
+    fileSize: {
+        type: Number
+    },
+    mimeType: {
+        type: String
+    },
+    fileIcon: {
+        type: String
+    },
     readBy: [{
         user: {
             type: mongoose.Schema.Types.ObjectId,

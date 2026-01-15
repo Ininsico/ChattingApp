@@ -20,11 +20,21 @@ router.get('/profile', protect, async (req, res) => {
 // @access  Private
 router.put('/profile', protect, async (req, res) => {
     try {
-        const { name, bio, avatar, phoneNumber, customStatus } = req.body;
+        const {
+            name, bio, avatar, phoneNumber, customStatus,
+            banner, avatarVisibility, secondaryEmail, country,
+            department, role, employeeId, reportingManager,
+            availabilityStatus, workingHours
+        } = req.body;
 
         const user = await User.findByIdAndUpdate(
             req.user.id,
-            { name, bio, avatar, phoneNumber, customStatus },
+            {
+                name, bio, avatar, phoneNumber, customStatus,
+                banner, avatarVisibility, secondaryEmail, country,
+                department, role, employeeId, reportingManager,
+                availabilityStatus, workingHours
+            },
             { new: true, runValidators: true }
         );
 

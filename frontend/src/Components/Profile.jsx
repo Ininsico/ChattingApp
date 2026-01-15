@@ -1,254 +1,416 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { User, Mail, Phone, Bell, Shield, Moon, Sun, LogOut, Camera, Edit2, Check, UserCheck, UserX, Loader2, Info, Smartphone, Sparkles } from 'lucide-react';
-import { authAPI, friendsAPI, userAPI, getCurrentUser, uploadAPI } from '../services/api';
-import { useNavigate } from 'react-router-dom';
-import socketService from '../services/socket';
+import { 
+    User, Mail, Phone, MapPin, Briefcase, Hash, Users, Clock, 
+    Shield, LogOut, Camera, Image as ImageIcon, Globe, Activity,
+    Save, X, Edit2, Loader2, Smartphone, Monitor, Trash2
+} from 'lucide-react';
+import { userAPI, authAPI, uploadAPI } from '../services/api';
 
 const Profile = () => {
+    const [user, setUser] = useState(null);
+    const [isLoading, setIsLoading] = useState(true);
+    const [isSaving, setIsSaving] = useState(false);
     const [isEditing, setIsEditing] = useState(false);
-    const [user, setUser] = useState(getCurrentUser());
-    const [friendRequests, setFriendRequests] = useState([]);
-    const [isLoading, setIsLoading] = useState(false);
-    const [isUploading, setIsUploading] = useState(false);
-    const navigate = useNavigate();
-    const fileInputRef = useRef(null);
 
-    const [profile, setProfile] = useState({
-        name: user?.name || '',
-        email: user?.email || '',
-        bio: user?.bio || '',
-        customStatus: user?.customStatus || 'Hey there! I am using ChatApp',
-        phoneNumber: user?.phoneNumber || '',
-        avatar: user?.avatar || ''
-    });
+    // Form State
+    const [formData, setFormData] = useState({});
 
-    const fetchFriendRequests = async () => {
-        try {
-            const res = await friendsAPI.getRequests();
-            if (res.success) setFriendRequests(res.requests);
-        } catch (err) {
-            console.error('Failed to fetch requests:', err);
-        }
-    };
+    // File Refs
+    const avatarInputRef = useRef(null);
+    const bannerInputRef = useRef(null);
 
     useEffect(() => {
-        fetchFriendRequests();
-
-        socketService.socket?.on('new-friend-request', (request) => {
-            setFriendRequests(prev => [request, ...prev]);
-        });
-
-        return () => {
-            socketService.socket?.off('new-friend-request');
-        };
+        fetchProfile();
     }, []);
 
-    const handleSave = async (updatedAvatar = null) => {
-        setIsLoading(true);
+    const fetchProfile = async () => {
         try {
-            const dataToUpdate = {
-                name: profile.name,
-                bio: profile.bio,
-                phoneNumber: profile.phoneNumber,
-                customStatus: profile.customStatus,
-                avatar: updatedAvatar || profile.avatar
-            };
-            const res = await userAPI.updateProfile(dataToUpdate);
+            const res = await userAPI.getProfile();
             if (res.success) {
                 setUser(res.user);
-                localStorage.setItem('user', JSON.stringify(res.user));
-                setIsEditing(false);
-                setProfile(prev => ({ ...prev, avatar: res.user.avatar }));
+                setFormData(res.user);
             }
         } catch (err) {
-            console.error('Update failed:', err);
+            console.error('Failed to fetch profile:', err);
         } finally {
             setIsLoading(false);
         }
     };
 
-    const handleAvatarClick = () => {
-        fileInputRef.current?.click();
+    const handleInputChange = (e) => {
+        const { name, value } = e.target;
+        if (name.includes('.')) {
+            const [parent, child] = name.split('.');
+            setFormData(prev => ({
+                ...prev,
+                [parent]: {
+                    ...prev[parent],
+                    [child]: value
+                }
+            }));
+        } else {
+            setFormData(prev => ({ ...prev, [name]: value }));
+        }
     };
 
-    const handleFileChange = async (e) => {
+    const handleRemoveMedia = async (type) => {
+        if (!window.confirm(`Are you sure you want to remove your ${type}?`)) return;
+        
+        try {
+            setIsSaving(true);
+            // Construct update with empty str/default for the specific field
+            // Default avatar URL is effectively "removed" or reset.
+            // Let's assume sending '' resets it to default in backend OR we set default here.
+            // Backend schema default is 'https://images.unsplash.com/...' for avatar.
+            // If I send '', backend might save ''.
+            // Better key: 'avatar': 'DEFAULT_URL' or just empty string and let frontend handle fallback?
+            // Actually, for banner, '' is fine. For avatar, let's use the default URL from schema as fallback constant or just '' if backend handles it?
+            // User schema has a default. On update with '', mongoose string type stores ''.
+            // So I should set it to the default URL manually if removing avatar.
+            
+            const DEFAULT_AVATAR = 'https://images.unsplash.com/photo-1599566150163-29194dcaad36?w=200&auto=format&fit=crop&q=60';
+            const value = type === 'avatar' ? DEFAULT_AVATAR : '';
+            
+            const updatedData = { ...formData, [type]: value };
+            
+            const res = await userAPI.updateProfile(updatedData);
+            if (res.success) {
+                setUser(res.user);
+                setFormData(res.user);
+            }
+        } catch(err) {
+            alert('Failed to remove media');
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    const handleFileUpload = async (e, type) => {
         const file = e.target.files[0];
         if (!file) return;
 
-        setIsUploading(true);
         try {
+            setIsSaving(true);
             const res = await uploadAPI.uploadFile(file);
             if (res.success) {
-                setProfile(prev => ({ ...prev, avatar: res.fileUrl }));
-                // Automatically save the new avatar
-                handleSave(res.fileUrl);
-            }
-        } catch (err) {
-            alert('Avatar upload failed');
-        } finally {
-            setIsUploading(false);
-        }
-    };
-
-    const handleAuthAction = async (requestId, action) => {
-        try {
-            const res = await friendsAPI.handleRequest(requestId, action);
-            if (res.success) {
-                if (action === 'accept') {
-                    socketService.socket.emit('friend-request-accepted', {
-                        targetUserId: friendRequests.find(r => r._id === requestId).from._id,
-                        conversation: res.conversation
-                    });
+                const updatedData = { ...formData, [type]: res.fileUrl };
+                // Immediately save media changes
+                const updateRes = await userAPI.updateProfile(updatedData);
+                if (updateRes.success) {
+                    setUser(updateRes.user);
+                    setFormData(updateRes.user);
                 }
-                setFriendRequests(prev => prev.filter(r => r._id !== requestId));
             }
         } catch (err) {
-            console.error('Action failed:', err);
+            console.error(`Failed to upload ${type}:`, err);
+            alert(`Failed to upload ${type}`);
+        } finally {
+            setIsSaving(false);
         }
     };
 
-    const handleSignOut = async () => {
-        await authAPI.logout();
-        socketService.disconnect();
-        navigate('/');
+    const handleSave = async () => {
+        setIsSaving(true);
+        try {
+            const res = await userAPI.updateProfile(formData);
+            if (res.success) {
+                setUser(res.user);
+                setIsEditing(false);
+            }
+        } catch (err) {
+            console.error('Failed to save profile:', err);
+            alert('Failed to save changes');
+        } finally {
+            setIsSaving(false);
+        }
     };
+
+    const handleLogoutAll = async () => {
+        if (!window.confirm('Are you sure you want to sign out from ALL devices?')) return;
+        try {
+            await authAPI.logoutAll();
+            window.location.href = '/';
+        } catch (err) {
+            console.error('Logout all failed:', err);
+            alert('Failed to logout from all devices');
+        }
+    };
+
+    if (isLoading) return <div className="flex h-full items-center justify-center"><Loader2 className="animate-spin w-8 h-8 text-[#06b6d4]" /></div>;
+
+    const InputField = ({ label, name, value, icon: Icon, type = "text", disabled = false, placeholder = "" }) => (
+        <div className="space-y-1.5">
+            <label className="text-xs font-bold text-gray-500 uppercase tracking-wider flex items-center gap-2">
+                {Icon && <Icon size={12} />} {label}
+            </label>
+            <input
+                type={type}
+                name={name}
+                value={value || ''}
+                onChange={handleInputChange}
+                disabled={disabled || !isEditing}
+                placeholder={placeholder}
+                className={`w-full bg-[#1a1a24] border ${disabled ? 'border-transparent opacity-60 cursor-not-allowed' : 'border-white/10 hover:border-white/20 focus:border-[#06b6d4]'} rounded-xl px-4 py-2.5 text-white outline-none transition-all duration-200`}
+            />
+        </div>
+    );
 
     return (
-        <div className="h-full w-full bg-[#13131a] overflow-y-auto scrollbar-thin scrollbar-thumb-white/10">
-            <input type="file" ref={fileInputRef} onChange={handleFileChange} accept="image/*" className="hidden" />
-
-            <div className="max-w-4xl mx-auto p-4 md:p-8">
-                <h1 className="text-3xl font-bold text-white mb-8">Account Profile</h1>
-
-                {/* Profile Card */}
-                <div className="bg-white/5 rounded-[2rem] p-8 mb-8 border border-white/10 shadow-2xl backdrop-blur-sm">
-                    <div className="flex flex-col md:flex-row items-center gap-10">
-                        <div
-                            onClick={handleAvatarClick}
-                            className="w-40 h-40 rounded-[2.5rem] overflow-hidden ring-4 ring-[#06b6d4]/50 shadow-2xl relative group cursor-pointer"
+        <div className="h-full flex flex-col bg-[#13131a] overflow-hidden">
+            {/* Header / Media Section */}
+            <div className="relative h-48 md:h-64 flex-shrink-0 group">
+                <div className="absolute inset-0 bg-gradient-to-b from-black/20 to-[#13131a]" />
+                {user.banner ? (
+                    <img src={user.banner} alt="Banner" className="w-full h-full object-cover" />
+                ) : (
+                    <div className="w-full h-full bg-gradient-to-r from-[#06b6d4]/20 to-[#8b5cf6]/20" />
+                )}
+                
+                {/* Banner Actions */}
+                <input type="file" ref={bannerInputRef} onChange={(e) => handleFileUpload(e, 'banner')} className="hidden" accept="image/*" />
+                <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    {user.banner && (
+                        <button 
+                            onClick={() => handleRemoveMedia('banner')}
+                            className="bg-black/50 hover:bg-black/70 hover:text-red-400 text-white p-2 rounded-xl backdrop-blur-sm transition-colors"
+                            title="Remove Banner"
                         >
-                            <img src={profile.avatar || user?.avatar} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" alt="" />
-                            <div className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 transition-all">
-                                {isUploading ? <Loader2 className="animate-spin text-white" /> : <Camera className="text-white mb-2" />}
-                                <span className="text-[10px] text-white font-bold uppercase tracking-widest">Change Photo</span>
-                            </div>
-                        </div>
-
-                        <div className="flex-1 text-center md:text-left space-y-4">
-                            <div className="space-y-1">
-                                {isEditing ? (
-                                    <input
-                                        value={profile.name}
-                                        onChange={e => setProfile({ ...profile, name: e.target.value })}
-                                        placeholder="Full Name"
-                                        className="text-3xl font-bold bg-white/10 rounded-2xl px-5 py-3 text-white outline-none border border-white/5 focus:border-[#06b6d4] transition-all w-full max-w-sm"
-                                    />
-                                ) : (
-                                    <h2 className="text-4xl font-black text-white tracking-tight">{user?.name}</h2>
-                                )}
-                                <p className="text-[#06b6d4] font-medium tracking-wide opacity-80">{user?.email}</p>
-                            </div>
-
-                            <div className="flex items-center gap-2 justify-center md:justify-start">
-                                <div className={`w-2.5 h-2.5 rounded-full ${user?.status === 'online' ? 'bg-[#10b981]' : 'bg-gray-500'} animate-pulse`}></div>
-                                <span className="text-xs font-bold uppercase tracking-widest text-gray-400">{user?.status || 'Offline'}</span>
-                            </div>
-                        </div>
-
-                        <button
-                            onClick={isEditing ? () => handleSave() : () => setIsEditing(true)}
-                            className={`px-8 py-4 rounded-2xl font-bold flex items-center gap-3 transition-all transform active:scale-95 ${isEditing
-                                ? 'bg-gradient-to-r from-[#10b981] to-[#059669] text-white shadow-lg shadow-[#10b981]/20'
-                                : 'bg-white/10 text-white hover:bg-white/20 border border-white/5'
-                                }`}
-                        >
-                            {isLoading ? <Loader2 className="animate-spin" size={20} /> : (isEditing ? <Check size={20} /> : <Edit2 size={20} />)}
-                            {isEditing ? 'Save Changes' : 'Edit Profile'}
+                            <Trash2 size={20} />
                         </button>
+                    )}
+                    <button 
+                        onClick={() => bannerInputRef.current?.click()}
+                        className="bg-black/50 hover:bg-black/70 text-white p-2 rounded-xl backdrop-blur-sm transition-colors"
+                        title="Change Banner"
+                    >
+                        <ImageIcon size={20} />
+                    </button>
+                </div>
+
+                {/* Avatar */}
+                <div className="absolute -bottom-16 left-6 md:left-10 flex items-end">
+                    <div className="relative group/avatar">
+                        <img 
+                            src={user.avatar} 
+                            alt={user.name} 
+                            className="w-32 h-32 rounded-3xl object-cover border-4 border-[#13131a] shadow-2xl bg-[#1a1a24]" 
+                        />
+                        <input type="file" ref={avatarInputRef} onChange={(e) => handleFileUpload(e, 'avatar')} className="hidden" accept="image/*" />
+                        
+                        {/* Avatar Overlay */}
+                        <div className="absolute inset-0 bg-black/60 flex items-center justify-center rounded-3xl opacity-0 group-hover/avatar:opacity-100 transition-opacity backdrop-blur-[2px] gap-2">
+                             <button 
+                                onClick={() => avatarInputRef.current?.click()}
+                                className="text-white hover:text-[#06b6d4] transition-colors p-2"
+                                title="Change Avatar"
+                            >
+                                <Camera size={24} />
+                            </button>
+                            {/* Only show remove if it's not the default avatar loosely checked or just allow reset */}
+                             <button 
+                                onClick={() => handleRemoveMedia('avatar')}
+                                className="text-white hover:text-red-400 transition-colors p-2"
+                                title="Remove Avatar"
+                            >
+                                <Trash2 size={24} />
+                            </button>
+                        </div>
                     </div>
                 </div>
 
-                {/* Friend Requests */}
-                {friendRequests.length > 0 && (
-                    <div className="bg-white/5 rounded-[2rem] border border-[#06b6d4]/20 mb-8 overflow-hidden animate-in fade-in slide-in-from-top-4 duration-500">
-                        <div className="p-6 bg-[#06b6d4]/10 border-b border-[#06b6d4]/10 flex justify-between items-center text-white">
-                            <h3 className="text-xl font-bold flex items-center gap-3"><Bell className="text-[#06b6d4]" /> Pending Connections</h3>
-                            <span className="bg-[#06b6d4] px-4 py-1 rounded-full text-sm font-black">{friendRequests.length}</span>
+                {/* Edit Toggle */}
+                <div className="absolute bottom-4 right-6 flex gap-3">
+                    {isEditing ? (
+                        <>
+                            <button onClick={() => { setIsEditing(false); setFormData(user); }} className="px-4 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white font-medium backdrop-blur-md transition-colors">
+                                Cancel
+                            </button>
+                            <button onClick={handleSave} disabled={isSaving} className="px-6 py-2 rounded-xl bg-[#06b6d4] hover:bg-[#0891b2] text-white font-bold shadow-lg shadow-[#06b6d4]/20 transition-all flex items-center gap-2">
+                                {isSaving ? <Loader2 className="animate-spin" size={18} /> : <Save size={18} />} Save
+                            </button>
+                        </>
+                    ) : (
+                        <button onClick={() => setIsEditing(true)} className="px-6 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white font-medium backdrop-blur-md border border-white/10 flex items-center gap-2 transition-colors">
+                            <Edit2 size={18} /> Edit Profile
+                        </button>
+                    )}
+                </div>
+            </div>
+
+            {/* Main Content Info */}
+            <div className="flex-1 overflow-y-auto pt-20 px-6 pb-12 scrollbar-thin scrollbar-thumb-white/10">
+                <div className="max-w-4xl mx-auto space-y-8">
+                    
+                    {/* Identity & Bio */}
+                    <div>
+                        <h1 className="text-3xl font-bold text-white mb-2">{user.name}</h1>
+                        <p className="text-gray-400 max-w-2xl">{user.bio || "No bio added yet."}</p>
+                        {isEditing && (
+                            <div className="mt-4 max-w-xl">
+                                <InputField label="Display Name" name="name" value={formData.name} Icon={User} />
+                                <div className="mt-4 space-y-1.5">
+                                    <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Bio</label>
+                                    <textarea 
+                                        name="bio"
+                                        value={formData.bio || ''}
+                                        onChange={handleInputChange}
+                                        rows={3}
+                                        className="w-full bg-[#1a1a24] border border-white/10 rounded-xl px-4 py-3 text-white outline-none focus:border-[#06b6d4]"
+                                    />
+                                </div>
+                            </div>
+                        )}
+                        
+                        {isEditing && (
+                             <div className="mt-4 max-w-xs">
+                                <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1">Avatar Visibility</label>
+                                <select 
+                                    name="avatarVisibility" 
+                                    value={formData.avatarVisibility} 
+                                    onChange={handleInputChange}
+                                    className="w-full bg-[#1a1a24] border border-white/10 rounded-xl px-4 py-2.5 text-white outline-none"
+                                >
+                                    <option value="everyone">Everyone</option>
+                                    <option value="contacts">Contacts Only</option>
+                                </select>
+                             </div>
+                        )}
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                        {/* Primary Contact Details */}
+                        <div className="bg-white/5 border border-white/5 rounded-3xl p-6 md:p-8 space-y-6">
+                            <h2 className="text-xl font-bold text-white flex items-center gap-3">
+                                <span className="w-8 h-8 rounded-lg bg-[#06b6d4]/20 text-[#06b6d4] flex items-center justify-center"><Mail size={18} /></span>
+                                Contact Details
+                            </h2>
+                            <div className="space-y-5">
+                                <InputField label="Primary Email" value={formData.email} Icon={Mail} disabled={true} />
+                                <InputField label="Secondary Email" name="secondaryEmail" value={formData.secondaryEmail} Icon={Mail} placeholder="backup@example.com" />
+                                <InputField label="Phone Number" name="phoneNumber" value={formData.phoneNumber} Icon={Phone} />
+                                <InputField label="Country / Region" name="country" value={formData.country} Icon={Globe} />
+                            </div>
                         </div>
-                        <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-4">
-                            {friendRequests.map(req => (
-                                <div key={req._id} className="flex items-center justify-between p-5 bg-white/5 rounded-3xl border border-white/5 hover:border-white/10 transition-all">
-                                    <div className="flex items-center gap-4">
-                                        <img src={req.from?.avatar} className="w-12 h-12 rounded-xl object-cover" alt="" />
-                                        <div>
-                                            <h4 className="font-bold text-white text-sm">{req.from?.name}</h4>
-                                            <p className="text-[10px] text-gray-400 font-medium">{req.from?.email}</p>
-                                        </div>
+
+                        {/* Professional Information */}
+                        <div className="bg-white/5 border border-white/5 rounded-3xl p-6 md:p-8 space-y-6">
+                            <h2 className="text-xl font-bold text-white flex items-center gap-3">
+                                <span className="w-8 h-8 rounded-lg bg-[#8b5cf6]/20 text-[#8b5cf6] flex items-center justify-center"><Briefcase size={18} /></span>
+                                Professional Info
+                            </h2>
+                            <div className="space-y-5">
+                                <InputField label="Department" name="department" value={formData.department} Icon={Users} />
+                                <InputField label="Role / Designation" name="role" value={formData.role} Icon={Briefcase} />
+                                <InputField label="Employee ID" name="employeeId" value={formData.employeeId} Icon={Hash} disabled={true} placeholder="N/A" />
+                                <InputField label="Reporting Manager" name="reportingManager" value={formData.reportingManager} Icon={User} />
+                            </div>
+                        </div>
+
+                        {/* Availability & Status */}
+                        <div className="bg-white/5 border border-white/5 rounded-3xl p-6 md:p-8 space-y-6">
+                            <h2 className="text-xl font-bold text-white flex items-center gap-3">
+                                <span className="w-8 h-8 rounded-lg bg-[#10b981]/20 text-[#10b981] flex items-center justify-center"><Activity size={18} /></span>
+                                Availability
+                            </h2>
+                            <div className="space-y-5">
+                                {isEditing ? (
+                                    <div className="space-y-1.5">
+                                        <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Status</label>
+                                        <select 
+                                            name="availabilityStatus" 
+                                            value={formData.availabilityStatus} 
+                                            onChange={handleInputChange}
+                                            className="w-full bg-[#1a1a24] border border-white/10 rounded-xl px-4 py-2.5 text-white outline-none focus:border-[#06b6d4]"
+                                        >
+                                            <option value="available">Available</option>
+                                            <option value="busy">Busy</option>
+                                            <option value="meeting">In a Meeting</option>
+                                            <option value="away">Away</option>
+                                            <option value="dnd">Do Not Disturb</option>
+                                        </select>
                                     </div>
-                                    <div className="flex gap-2">
-                                        <button onClick={() => handleAuthAction(req._id, 'accept')} className="p-2.5 bg-[#10b981]/10 text-[#10b981] hover:bg-[#10b981] hover:text-white rounded-xl transition-all"><UserCheck size={18} /></button>
-                                        <button onClick={() => handleAuthAction(req._id, 'reject')} className="p-2.5 bg-[#ef4444]/10 text-[#ef4444] hover:bg-[#ef4444] hover:text-white rounded-xl transition-all"><UserX size={18} /></button>
+                                ) : (
+                                    <div className="flex items-center gap-3 p-4 bg-[#1a1a24] rounded-xl border border-white/10">
+                                        <div className={`w-3 h-3 rounded-full ${
+                                            formData.availabilityStatus === 'available' ? 'bg-green-500' :
+                                            formData.availabilityStatus === 'busy' || formData.availabilityStatus === 'dnd' ? 'bg-red-500' :
+                                            formData.availabilityStatus === 'away' ? 'bg-yellow-500' : 'bg-blue-500'
+                                        }`} />
+                                        <span className="capitalize font-medium text-white">{formData.availabilityStatus || 'Available'}</span>
+                                    </div>
+                                )}
+
+                                <div className="space-y-1.5">
+                                    <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Custom Status</label>
+                                    <input
+                                        type="text"
+                                        name="customStatus"
+                                        value={formData.customStatus || ''}
+                                        onChange={handleInputChange}
+                                        disabled={!isEditing}
+                                        className="w-full bg-[#1a1a24] border border-white/10 rounded-xl px-4 py-2.5 text-white outline-none focus:border-[#06b6d4]"
+                                    />
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-4">
+                                    <InputField label="Work Start" name="workingHours.start" value={formData.workingHours?.start} Icon={Clock} type="time" />
+                                    <InputField label="Work End" name="workingHours.end" value={formData.workingHours?.end} Icon={Clock} type="time" />
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Security & Trust */}
+                        <div className="bg-white/5 border border-white/5 rounded-3xl p-6 md:p-8 space-y-6">
+                            <h2 className="text-xl font-bold text-white flex items-center gap-3">
+                                <span className="w-8 h-8 rounded-lg bg-[#ef4444]/20 text-[#ef4444] flex items-center justify-center"><Shield size={18} /></span>
+                                Security & Trust
+                            </h2>
+                            <div className="space-y-5">
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="p-4 bg-[#1a1a24] rounded-xl border border-white/10">
+                                        <div className="text-xs text-gray-500 mb-1">Account Status</div>
+                                        <div className="font-bold text-[#10b981] flex items-center gap-2"><div className="w-2 h-2 bg-[#10b981] rounded-full"></div> Active</div>
+                                    </div>
+                                    <div className="p-4 bg-[#1a1a24] rounded-xl border border-white/10">
+                                        <div className="text-xs text-gray-500 mb-1">Login Method</div>
+                                        <div className="font-bold text-white capitalize">{formData.loginMethod || 'Email'}</div>
                                     </div>
                                 </div>
-                            ))}
-                        </div>
-                    </div>
-                )}
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
-                    {/* Bio Section */}
-                    <div className="bg-white/5 rounded-[2rem] p-8 border border-white/10">
-                        <label className="text-xs font-black text-gray-400 uppercase tracking-widest mb-4 flex items-center gap-2">
-                            <Info size={14} className="text-[#06b6d4]" /> About Me
-                        </label>
-                        <textarea
-                            value={profile.bio}
-                            readOnly={!isEditing}
-                            onChange={e => setProfile({ ...profile, bio: e.target.value })}
-                            placeholder="Tell us about yourself..."
-                            className="w-full p-5 bg-white/5 rounded-[1.5rem] text-white outline-none border border-white/5 focus:border-[#06b6d4] h-40 resize-none transition-all placeholder-gray-600 font-medium"
-                        />
-                    </div>
+                                <div className="p-4 bg-[#1a1a24] rounded-xl border border-white/10 space-y-3">
+                                    <div className="text-xs font-bold text-gray-500 uppercase tracking-wider flex items-center justify-between">
+                                        <span>Last Login</span>
+                                        <span className="text-[#06b6d4]">{formData.activeSessions || 1} Active Sessions</span>
+                                    </div>
+                                    {formData.loginHistory && formData.loginHistory.length > 0 ? (
+                                        <div className="space-y-2">
+                                            {formData.loginHistory.slice(-1).map((login, i) => (
+                                                <div key={i} className="flex items-center justify-between text-sm">
+                                                    <div className="flex items-center gap-2 text-white">
+                                                        <Monitor size={14} className="text-gray-500" /> 
+                                                        {login.device || 'Unknown Device'}
+                                                    </div>
+                                                    <div className="text-gray-500">{new Date(login.date).toLocaleString()}</div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    ) : (
+                                        <div className="text-sm text-gray-500">No history available</div>
+                                    )}
+                                </div>
 
-                    {/* Status & Phone Section */}
-                    <div className="bg-white/5 rounded-[2rem] p-8 border border-white/10 space-y-8">
-                        <div>
-                            <label className="text-xs font-black text-gray-400 uppercase tracking-widest mb-4 flex items-center gap-2">
-                                <Sparkles size={14} className="text-[#06b6d4]" /> Current Status
-                            </label>
-                            <input
-                                value={profile.customStatus}
-                                readOnly={!isEditing}
-                                onChange={e => setProfile({ ...profile, customStatus: e.target.value })}
-                                placeholder="What's on your mind?"
-                                className="w-full p-4 bg-white/5 rounded-[1.2rem] text-white outline-none border border-white/5 focus:border-[#06b6d4] transition-all font-medium"
-                            />
-                        </div>
-
-                        <div>
-                            <label className="text-xs font-black text-gray-400 uppercase tracking-widest mb-4 flex items-center gap-2">
-                                <Smartphone size={14} className="text-[#06b6d4]" /> Phone Number
-                            </label>
-                            <div className="relative">
-                                <input
-                                    value={profile.phoneNumber}
-                                    readOnly={!isEditing}
-                                    onChange={e => setProfile({ ...profile, phoneNumber: e.target.value })}
-                                    placeholder="+1 234 567 890"
-                                    className="w-full pl-12 pr-4 py-4 bg-white/5 rounded-[1.2rem] text-white outline-none border border-white/5 focus:border-[#06b6d4] transition-all font-medium"
-                                />
-                                <Phone className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500" size={18} />
+                                <button 
+                                    onClick={handleLogoutAll}
+                                    className="w-full py-3 rounded-xl bg-red-500/10 hover:bg-red-500 text-red-500 hover:text-white font-bold border border-red-500/20 transition-all flex items-center justify-center gap-2 group"
+                                >
+                                    <LogOut size={18} /> Sign out from all devices
+                                </button>
                             </div>
                         </div>
                     </div>
+                    
+                    <div className="h-8"></div> {/* Spacer */}
                 </div>
-
-                <button
-                    onClick={handleSignOut}
-                    className="w-full p-6 rounded-[2rem] bg-[#ef4444]/5 text-[#ef4444] border border-[#ef4444]/20 hover:bg-[#ef4444] hover:text-white transition-all font-black uppercase tracking-widest text-sm flex items-center justify-center gap-4 shadow-xl active:scale-95"
-                >
-                    <LogOut size={20} /> Deactivate Session
-                </button>
             </div>
         </div>
     );

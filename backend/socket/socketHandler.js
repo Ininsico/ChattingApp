@@ -45,7 +45,28 @@ const socketHandler = (io) => {
 
                 const message = await Message.create({ conversationId, sender: socket.userId, content, messageType, fileUrl });
                 await message.populate('sender', 'name avatar');
-                await Conversation.findByIdAndUpdate(conversationId, { lastMessage: message._id, lastMessageAt: new Date() });
+
+                // Update conversation: lastMessage, timestamps, and unread counts
+                conversation.lastMessage = message._id;
+                conversation.lastMessageAt = new Date();
+
+                // Update unread counts for other participants
+                conversation.participants.forEach(pId => {
+                    const participantId = pId.toString();
+                    if (participantId !== socket.userId) {
+                        const settings = conversation.userSettings.find(s => s.userId.toString() === participantId);
+                        if (settings) {
+                            settings.unreadCount = (settings.unreadCount || 0) + 1;
+                        } else {
+                            conversation.userSettings.push({ userId: participantId, unreadCount: 1 });
+                        }
+                        // Emit real-time unread update
+                        const newCount = settings ? settings.unreadCount : 1;
+                        io.to(participantId).emit('unread-update', { conversationId, unreadCount: newCount });
+                    }
+                });
+
+                await conversation.save();
                 await removeUserTyping(conversationId, socket.userId);
 
                 io.to(conversationId).emit('new-message', {

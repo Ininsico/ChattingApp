@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { MessageSquare, Users, User, LogOut, Settings, Bell, Sparkles } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import DirectMessages from "../Components/DirectMessages";
 import GroupMessages from "../Components/GroupMessages";
 import Profile from "../Components/Profile";
@@ -10,6 +10,7 @@ import { authAPI } from "../services/api";
 const Dashboard = () => {
     const [activeTab, setActiveTab] = useState('direct');
     const navigate = useNavigate();
+    const [searchParams] = useSearchParams();
 
     useEffect(() => {
         document.documentElement.classList.add('dark');
@@ -19,12 +20,20 @@ const Dashboard = () => {
             socketService.connect(token);
         } else {
             navigate('/');
+            return;
+        }
+
+        const cid = searchParams.get('cid');
+        const type = searchParams.get('type');
+
+        if (cid && type) {
+            setActiveTab(type === 'group' ? 'groups' : 'direct');
         }
 
         return () => {
             socketService.disconnect();
         };
-    }, [navigate]);
+    }, [navigate, searchParams]);
 
     const handleSignOut = async () => {
         await authAPI.logout();
@@ -33,9 +42,10 @@ const Dashboard = () => {
     };
 
     const renderContent = () => {
+        const initialChatId = searchParams.get('cid');
         switch (activeTab) {
-            case 'direct': return <DirectMessages />;
-            case 'groups': return <GroupMessages />;
+            case 'direct': return <DirectMessages initialChatId={activeTab === 'direct' ? initialChatId : null} />;
+            case 'groups': return <GroupMessages initialChatId={activeTab === 'groups' ? initialChatId : null} />;
             case 'profile': return <Profile />;
             default: return <DirectMessages />;
         }
