@@ -168,7 +168,8 @@ router.post('/', protect, upload.single('file'), async (req, res) => {
         }
 
         // File is safe, construct response
-        const fileUrl = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
+        // Encode filename to ensure valid URL
+        const fileUrl = `${req.protocol}://${req.get('host')}/uploads/${encodeURIComponent(req.file.filename)}`;
         const fileCategory = getFileCategory(req.file.mimetype);
         const fileIcon = getFileIcon(filename);
 
@@ -230,18 +231,34 @@ router.get('/download/:messageId', protect, async (req, res) => {
             return res.status(400).json({ success: false, message: 'No file attached to this message' });
         }
 
-        const filename = path.basename(new URL(message.fileUrl).pathname);
+        // Robust filename extraction handling both encoded and unencoded URLs
+        // We use split/pop to avoid 'Invalid URL' errors if the DB contains unencoded spaces
+        let filename;
+        try {
+            // Try standard URL parsing first (handles encoded URLs correctly)
+            const urlObj = new URL(message.fileUrl);
+            filename = path.posix.basename(urlObj.pathname);
+        } catch (e) {
+            // Fallback for unencoded URLs or other format issues: just take the last part
+            const parts = message.fileUrl.split('/');
+            filename = parts[parts.length - 1];
+        }
+
+        // Always decode to get the actual file system name
+        filename = decodeURIComponent(filename);
+
         const filePath = path.join(__dirname, '..', 'uploads', filename);
 
         // Check if file exists
         try {
             await fs.access(filePath);
         } catch (err) {
+            console.error(`File not found at path: ${filePath}`);
             return res.status(404).json({ success: false, message: 'File not found on server' });
         }
 
         // Send file
-        res.download(filePath, message.content || filename);
+        res.download(filePath, message.fileName || filename);
 
     } catch (error) {
         console.error('Download error:', error);

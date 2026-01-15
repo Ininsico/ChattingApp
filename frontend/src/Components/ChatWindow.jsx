@@ -64,11 +64,40 @@ const ChatWindow = ({ chat, onBack, onUpdateChat }) => {
     useEffect(() => {
         if (chat?._id) {
             socketService.joinConversation(chat._id);
+            if (socketService.markConversationRead) {
+                socketService.markConversationRead(chat._id); // Mark as read immediately
+            }
             fetchMessages();
 
             socketService.onNewMessage(({ conversationId, message: newMsg }) => {
                 if (conversationId === chat._id) {
                     setMessages(prev => [...prev, newMsg]);
+                    // If I am viewing the chat, and a new message comes in, I should mark it as read?
+                    // Yes, technically. But for now simpler to just mark read on mount/focus. 
+                    // To be really robust, we should mark read if window is focused. 
+                    // Let's stick to mount for now.
+                    if (document.visibilityState === 'visible') {
+                        if (socketService.markConversationRead) {
+                            socketService.markConversationRead(chat._id);
+                        }
+                    }
+                }
+            });
+
+            socketService.onConversationRead(({ conversationId, userId, readAt }) => {
+                if (conversationId === chat._id) {
+                    const updatedChat = { ...chat };
+                    // Handle both populated (object with _id) and unpopulated (string id) userId
+                    const userSettings = updatedChat.userSettings?.find(s => {
+                        const sId = s.userId?._id || s.userId;
+                        return sId === userId;
+                    });
+                    
+                    if (userSettings) {
+                        userSettings.lastReadAt = readAt;
+                        userSettings.unreadCount = 0;
+                        onUpdateChat(updatedChat);
+                    }
                 }
             });
 
@@ -120,6 +149,7 @@ const ChatWindow = ({ chat, onBack, onUpdateChat }) => {
 
         return () => {
             socketService.off('new-message');
+            socketService.off('conversation-read');
             socketService.off('user-typing');
             socketService.off('user-stopped-typing');
             socketService.socket?.off('message-reaction');
@@ -228,15 +258,16 @@ const ChatWindow = ({ chat, onBack, onUpdateChat }) => {
 
         const messageData = {
             conversationId: chat._id,
-            content: fileData
-                ? (fileData.filename || `Sent a ${fileData.fileType}`)
-                : text,
+            content: (text && text.trim()) 
+                ? text 
+                : (fileData ? (fileData.filename || `Sent a ${fileData.fileType}`) : text),
             messageType: fileData ? fileData.fileType : 'text',
             fileUrl: fileData ? fileData.fileUrl : null,
             fileName: fileData?.filename,
             fileSize: fileData?.fileSize,
             mimeType: fileData?.mimeType,
             fileIcon: fileData?.icon,
+            duration: fileData?.duration,
             replyTo: replyingTo?._id,
             isCode: text?.includes('```')
         };

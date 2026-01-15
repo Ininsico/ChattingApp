@@ -67,6 +67,18 @@ class SocketService {
         }
     }
 
+    markConversationRead(conversationId) {
+        if (this.socket) {
+            this.socket.emit('mark-conversation-read', { conversationId });
+        }
+    }
+
+    onConversationRead(callback) {
+        if (this.socket) {
+            this.socket.on('conversation-read', callback);
+        }
+    }
+
     // Status
     onUserOnline(callback) {
         if (this.socket) {

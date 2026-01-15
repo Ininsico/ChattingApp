@@ -1,4 +1,4 @@
-import { Check, Pin, Star, Reply, Smile, Copy, Forward, Trash2, X, Code } from 'lucide-react';
+import { Check, CheckCheck, Pin, Star, Reply, Smile, Copy, Forward, Trash2, X, Code } from 'lucide-react';
 import FileCard from './FileCard';
 
 const EMOJIS = [
@@ -11,7 +11,7 @@ const EMOJIS = [
 ];
 
 const highlightText = (text, query) => {
-    if (!query.trim()) return text;
+    if (!query || !query.trim()) return text;
     const parts = text.split(new RegExp(`(${query})`, 'gi'));
     return (
         <span>
@@ -90,6 +90,29 @@ const MessageItem = ({
     const isMe = msg.sender?._id === currentUser?.id || msg.sender === currentUser?.id;
     const hasReactions = msg.reactions?.length > 0;
 
+    const getReadStatus = () => {
+        if (!isMe || !chat) return null;
+        
+        if (!chat.userSettings) return 'sent';
+
+        if (!chat.isGroup) {
+            const otherSettings = chat.userSettings.find(s => {
+                 const sId = s.userId?._id || s.userId;
+                 return sId !== currentUser?.id;
+            });
+            if (!otherSettings) return 'sent';
+            
+            const lastRead = new Date(otherSettings.lastReadAt);
+            const msgTime = new Date(msg.createdAt);
+            
+            return lastRead >= msgTime ? 'read' : 'sent';
+        }
+        
+        return 'sent'; // Fallback for groups
+    };
+
+    const readStatus = getReadStatus();
+
     return (
         <div
             id={`msg-${msg._id}`}
@@ -129,7 +152,7 @@ const MessageItem = ({
 
                     {msg.replyTo && (() => {
                         // Find the replied message
-                        const repliedMsg = messages.find(m => m._id === msg.replyTo);
+                        const repliedMsg = messages ? messages.find(m => m._id === msg.replyTo) : null;
                         return (
                             <div className={`mb-2 pl-3 border-l-2 ${isMe ? 'border-white/30' : 'border-[#06b6d4]'} bg-black/20 rounded-lg p-2 text-xs`}>
                                 <p className="text-[#06b6d4] font-semibold mb-0.5">{repliedMsg?.sender?.name || 'User'}</p>
@@ -139,7 +162,11 @@ const MessageItem = ({
                     })()}
 
                     {/* Text content (only if not a file-only message or has additional text) */}
-                    {(!msg.fileUrl || (msg.content && !msg.content.startsWith('Sent a'))) && renderMessageContent(msg.content, searchQuery)}
+                    {(!msg.fileUrl || (msg.content && !msg.content.startsWith('Sent a'))) && (
+                        <div className={msg.fileUrl ? "mt-2" : ""}>
+                            {renderMessageContent(msg.content, searchQuery)}
+                        </div>
+                    )}
 
                     {/* Reaction Display */}
                     {hasReactions && (
@@ -216,7 +243,19 @@ const MessageItem = ({
                         </div>
                     </div>
                 </div>
-                <p className="text-[10px] text-gray-600 mt-1.5 ml-1 font-medium">{new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                
+                <div className={`flex items-center gap-1 mt-1.5 ml-1 ${isMe ? 'justify-end' : 'justify-start'}`}>
+                    <p className="text-[10px] text-gray-600 font-medium">{new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                    {isMe && readStatus && (
+                        <span className="" title={readStatus === 'read' ? "Read" : "Sent"}>
+                            {readStatus === 'read' ? (
+                                <CheckCheck size={14} className="text-[#06b6d4]" />
+                            ) : (
+                                <Check size={14} className="text-gray-400" />
+                            )}
+                        </span>
+                    )}
+                </div>
 
                 {/* Quick Reaction Bar */}
                 {
@@ -230,7 +269,7 @@ const MessageItem = ({
                     )
                 }
             </div>
-        </div >
+        </div>
     );
 };
 
