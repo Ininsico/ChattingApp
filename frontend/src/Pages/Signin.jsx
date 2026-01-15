@@ -167,22 +167,31 @@ export default function SignInPage() {
         className={`w-full h-full flex flex-col md:flex-row ${isSignUp ? 'md:flex-row-reverse' : ''}`}
       >
 
-        {/* Left Side (Form) - effectively moves based on flex-direction */}
+        {/* Left Side (Form) */}
         <motion.div
           layout
-          className="w-full md:w-1/2 p-8 md:p-16 flex flex-col justify-center relative z-10"
+          className="w-full md:w-1/2 p-6 sm:p-8 lg:p-16 flex flex-col justify-center relative z-10"
         >
           <div className="max-w-md mx-auto w-full">
+
+            {/* Mobile Brand Header */}
+            <div className="flex md:hidden items-center gap-2 mb-8 text-cyan-500">
+              <div className="p-2 bg-cyan-500/10 rounded-lg">
+                <MessageSquare className="w-6 h-6" />
+              </div>
+              <span className="text-xl font-bold tracking-wide">ChatFlow</span>
+            </div>
+
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.1 }}
             >
-              <div className="mb-8">
-                <h1 className="text-3xl font-bold mb-2">
+              <div className="mb-6 sm:mb-8">
+                <h1 className="text-2xl sm:text-3xl font-bold mb-2">
                   {isSignUp ? "Create Account" : "Welcome Back"}
                 </h1>
-                <p className={`${theme.muted}`}>
+                <p className={`${theme.muted} text-sm sm:text-base`}>
                   {isSignUp ? "Enter your details to get started" : "Please enter your details to sign in"}
                 </p>
               </div>
@@ -200,7 +209,7 @@ export default function SignInPage() {
                       initial={{ opacity: 0, height: 0 }}
                       animate={{ opacity: 1, height: "auto" }}
                       exit={{ opacity: 0, height: 0 }}
-                      className="grid grid-cols-2 gap-4"
+                      className="grid grid-cols-1 sm:grid-cols-2 gap-4"
                     >
                       <div>
                         <label className={`text-sm font-medium ${theme.muted} block mb-1.5`}>First Name</label>
@@ -341,7 +350,7 @@ export default function SignInPage() {
         {/* Right Side (Info/Brand) */}
         <motion.div
           layout
-          className={`hidden md:flex w-1/2 p-12 flex-col justify-between relative overflow-hidden transition-colors duration-500`}
+          className={`hidden md:flex w-1/2 p-12 lg:p-16 flex-col justify-between relative overflow-hidden transition-colors duration-500`}
         >
           {/* Background Gradient/Image */}
           <div className={`absolute inset-0 bg-gradient-to-br ${isDarkMode ? 'from-cyan-900 to-blue-900' : 'from-blue-600 to-cyan-500'}`}></div>
