@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { conversationsAPI, getCurrentUser, uploadAPI, userAPI } from '../services/api';
 import socketService from '../services/socket';
+import EmojiPicker, { Theme } from 'emoji-picker-react';
 
 const EMOJIS = [
     { name: 'heart', char: '❤️' },
@@ -42,11 +43,13 @@ const ChatWindow = ({ chat, onBack, onUpdateChat }) => {
     // Menu States
     const [isMenuOpen, setIsMenuOpen] = useState(false);
     const [showMuteOptions, setShowMuteOptions] = useState(false);
+    const [showEmojiPicker, setShowEmojiPicker] = useState(false);
 
     const messagesEndRef = useRef(null);
     const fileInputRef = useRef(null);
     const searchInputRef = useRef(null);
     const menuRef = useRef(null);
+    const emojiPickerRef = useRef(null);
 
     const currentUser = getCurrentUser();
     const currentUserId = currentUser?.id || currentUser?._id;
@@ -141,9 +144,12 @@ const ChatWindow = ({ chat, onBack, onUpdateChat }) => {
             if (activeReactionMenu && !event.target.closest('.reaction-menu-container')) {
                 setActiveReactionMenu(null);
             }
+            if (emojiPickerRef.current && !emojiPickerRef.current.contains(event.target) && !event.target.closest('.emoji-toggle-btn')) {
+                setShowEmojiPicker(false);
+            }
         };
 
-        if (isMenuOpen || contextMenu || activeReactionMenu) {
+        if (isMenuOpen || contextMenu || activeReactionMenu || showEmojiPicker) {
             document.addEventListener('mousedown', handleClickOutside);
         }
 
@@ -1043,9 +1049,37 @@ const ChatWindow = ({ chat, onBack, onUpdateChat }) => {
                             placeholder="Type a message..."
                             className="w-full px-5 py-3 md:py-4 rounded-2xl bg-white/10 border border-white/10 outline-none focus:border-[#06b6d4] focus:bg-white/15 text-white placeholder-gray-500 transition-all font-medium"
                         />
-                        <button onClick={() => setActiveReactionMenu(messages[messages.length - 1]?._id)} className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500 hover:text-[#06b6d4] transition-colors">
-                            <Smile size={22} />
-                        </button>
+                        <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-2">
+                            <button 
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    setShowEmojiPicker(!showEmojiPicker);
+                                }} 
+                                className={`emoji-toggle-btn transition-colors ${showEmojiPicker ? 'text-[#06b6d4]' : 'text-gray-500 hover:text-[#06b6d4]'}`}
+                            >
+                                <Smile size={22} />
+                            </button>
+                        </div>
+
+                        {showEmojiPicker && (
+                            <div 
+                                ref={emojiPickerRef}
+                                className="absolute bottom-full right-0 mb-4 z-[9999] shadow-2xl animate-in slide-in-from-bottom-2 duration-200"
+                            >
+                                <EmojiPicker
+                                    theme={Theme.DARK}
+                                    onEmojiClick={(emojiData) => {
+                                        setMessage(prev => prev + emojiData.emoji);
+                                        // Keeping it open like WhatsApp does, but you can close it if you want
+                                        // setShowEmojiPicker(false);
+                                    }}
+                                    autoFocusSearch={false}
+                                    searchPlaceholder="Search emojis..."
+                                    width={350}
+                                    height={450}
+                                />
+                            </div>
+                        )}
                     </div>
 
                     <button onClick={() => handleSend()} className="w-10 h-10 md:w-14 md:h-14 flex items-center justify-center rounded-2xl bg-gradient-to-br from-[#06b6d4] to-[#0891b2] text-white shadow-xl shadow-[#06b6d4]/30 hover:scale-105 transition-all transform active:scale-95">
