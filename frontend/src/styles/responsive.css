@@ -1,0 +1,208 @@
+/* Responsive Utilities */
+@layer utilities {
+
+    /* Touch-friendly active states */
+    .active\:scale-98:active {
+        transform: scale(0.98);
+    }
+
+    /* Smooth scrolling */
+    .scroll-smooth {
+        scroll-behavior: smooth;
+    }
+
+    /* Custom scrollbar for webkit browsers */
+    .scrollbar-thin::-webkit-scrollbar {
+        width: 6px;
+        height: 6px;
+    }
+
+    .scrollbar-thin::-webkit-scrollbar-track {
+        background: transparent;
+    }
+
+    .scrollbar-thin::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.1);
+        border-radius: 3px;
+    }
+
+    .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+        background: rgba(255, 255, 255, 0.2);
+    }
+
+    .scrollbar-thumb-white\/10::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.1);
+    }
+
+    /* Hide scrollbar for mobile */
+    @media (max-width: 640px) {
+        .scrollbar-thin::-webkit-scrollbar {
+            width: 3px;
+        }
+    }
+
+    /* Prevent text selection on buttons */
+    button {
+        -webkit-tap-highlight-color: transparent;
+        user-select: none;
+    }
+
+    /* Better touch targets */
+    @media (max-width: 768px) {
+
+        button,
+        a,
+        [role="button"] {
+            min-height: 44px;
+            min-width: 44px;
+        }
+    }
+
+    /* Prevent zoom on input focus (iOS) */
+    @media (max-width: 768px) {
+
+        input,
+        textarea,
+        select {
+            font-size: 16px !important;
+        }
+    }
+
+    /* Safe area insets for notched devices */
+    @supports (padding: max(0px)) {
+        .safe-top {
+            padding-top: max(env(safe-area-inset-top), 0.5rem);
+        }
+
+        .safe-bottom {
+            padding-bottom: max(env(safe-area-inset-bottom), 0.5rem);
+        }
+    }
+}
+
+/* Animations */
+@keyframes slide-in-from-top {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes slide-in-from-bottom {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes zoom-in {
+    from {
+        opacity: 0;
+        transform: scale(0.95);
+    }
+
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+@keyframes fade-in {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
+
+.animate-in {
+    animation-duration: 200ms;
+    animation-fill-mode: both;
+}
+
+.slide-in-from-top-2 {
+    animation-name: slide-in-from-top;
+}
+
+.slide-in-from-bottom-2,
+.slide-in-from-bottom-4 {
+    animation-name: slide-in-from-bottom;
+}
+
+.zoom-in-95 {
+    animation-name: zoom-in;
+}
+
+.fade-in {
+    animation-name: fade-in;
+}
+
+/* Responsive text truncation */
+.line-clamp-1 {
+    display: -webkit-box;
+    -webkit-line-clamp: 1;
+    line-clamp: 1;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.line-clamp-2 {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.line-clamp-3 {
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+/* Better focus states for accessibility */
+*:focus-visible {
+    outline: 2px solid rgba(6, 182, 212, 0.5);
+    outline-offset: 2px;
+}
+
+/* Smooth transitions */
+* {
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Prevent layout shift */
+img {
+    max-width: 100%;
+    height: auto;
+}
+
+/* Better mobile viewport */
+html {
+    -webkit-text-size-adjust: 100%;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+    overflow-x: hidden;
+}
+
+/* Improve touch scrolling on iOS */
+* {
+    -webkit-overflow-scrolling: touch;
+}

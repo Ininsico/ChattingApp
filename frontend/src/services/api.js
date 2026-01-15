@@ -174,6 +174,12 @@ export const uploadAPI = {
             }
         });
         return response.data;
+    },
+    downloadFile: async (messageId) => {
+        const response = await api.get(`/upload/download/${messageId}`, {
+            responseType: 'blob'
+        });
+        return response.data;
     }
 };
 
