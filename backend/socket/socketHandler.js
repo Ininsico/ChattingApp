@@ -39,11 +39,21 @@ const socketHandler = (io) => {
 
         socket.on('send-message', async (data) => {
             try {
-                const { conversationId, content, messageType = 'text', fileUrl } = data;
+                const { conversationId, content, messageType = 'text', fileUrl, fileName, fileSize, mimeType, fileIcon } = data;
                 const conversation = await Conversation.findById(conversationId);
                 if (!conversation || !conversation.isParticipant(socket.userId)) return;
 
-                const message = await Message.create({ conversationId, sender: socket.userId, content, messageType, fileUrl });
+                const message = await Message.create({
+                    conversationId,
+                    sender: socket.userId,
+                    content,
+                    messageType,
+                    fileUrl,
+                    fileName,
+                    fileSize,
+                    mimeType,
+                    fileIcon
+                });
                 await message.populate('sender', 'name avatar');
 
                 // Update conversation: lastMessage, timestamps
@@ -114,7 +124,11 @@ const socketHandler = (io) => {
                         messageType: message.messageType,
                         fileUrl: message.fileUrl,
                         sender: message.sender,
-                        createdAt: message.createdAt
+                        createdAt: message.createdAt,
+                        fileName: message.fileName,
+                        fileSize: message.fileSize,
+                        mimeType: message.mimeType,
+                        fileIcon: message.fileIcon
                     }
                 });
             } catch (error) {

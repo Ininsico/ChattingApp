@@ -99,7 +99,7 @@ const MessageInput = ({ chat, onSendMessage, onTyping, replyingTo, onCancelReply
                 fileSize: file.size,
                 mimeType: file.type,
                 fileType,
-                icon
+                icon: response.icon || icon
             });
         } catch (error) {
             console.error('Upload failed:', error);
