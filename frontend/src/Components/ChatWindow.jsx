@@ -3,7 +3,7 @@ import {
     ArrowLeft, Search, MoreVertical, Send, Image, Paperclip, Loader2,
     UserPlus, UserMinus, Trash2, Smile, X, ChevronUp, ChevronDown,
     Bell, BellOff, ExternalLink, MessageSquareX, Flag, Info, ChevronRight, Check,
-    Reply, Forward, Pin, Star, Copy, CheckSquare, Code, MousePointer2, Download, FileText, FileArchive, File, Music
+    Reply, Forward, Pin, Star, Copy, CheckSquare, Code, MousePointer2, Download, FileText, FileArchive, File, Music, Image as ImageIcon
 } from 'lucide-react';
 import { conversationsAPI, getCurrentUser, uploadAPI, userAPI } from '../services/api';
 import socketService from '../services/socket';
@@ -50,6 +50,7 @@ const ChatWindow = ({ chat, onBack, onUpdateChat }) => {
     const [starredMessages, setStarredMessages] = useState([]);
     const [isForwardModalOpen, setIsForwardModalOpen] = useState(false);
     const [messageToForward, setMessageToForward] = useState(null);
+    const [showUploadMenu, setShowUploadMenu] = useState(false);
 
     const messagesEndRef = useRef(null);
     const fileInputRef = useRef(null);
@@ -105,6 +106,18 @@ const ChatWindow = ({ chat, onBack, onUpdateChat }) => {
 
             socketService.socket?.on('message-deleted', ({ messageId }) => {
                 setMessages(prev => prev.filter(m => m._id !== messageId));
+            });
+
+            socketService.socket?.on('unread-update', ({ conversationId, unreadCount }) => {
+                if (conversationId === chat._id) {
+                    // Update the conversation's unread count in parent
+                    const updatedChat = { ...chat };
+                    const userSettings = updatedChat.userSettings?.find(s => s.userId === currentUser?.id);
+                    if (userSettings) {
+                        userSettings.unreadCount = unreadCount;
+                    }
+                    onUpdateChat(updatedChat);
+                }
             });
 
             socketService.socket?.on('group-updated', ({ conversationId, conversation }) => {
@@ -278,6 +291,58 @@ const ChatWindow = ({ chat, onBack, onUpdateChat }) => {
         socketService.sendTypingStop(chat._id);
     };
 
+    const handleFileSelect = async (file, type) => {
+        if (!file) return;
+
+        console.log('File selected:', file.name, 'Type:', type);
+        setIsUploading(true);
+
+        try {
+            // Upload file to server
+            const formData = new FormData();
+            formData.append('file', file);
+
+            const response = await uploadAPI.uploadFile(formData);
+            console.log('Upload response:', response);
+
+            // Determine file type and icon
+            let fileType = 'file';
+            let icon = 'file';
+
+            if (file.type.startsWith('image/')) {
+                fileType = 'image';
+                icon = 'image';
+            } else if (file.type.startsWith('video/')) {
+                fileType = 'video';
+                icon = 'video';
+            } else if (file.type.includes('pdf')) {
+                fileType = 'document';
+                icon = 'pdf';
+            } else if (file.type.includes('word') || file.type.includes('document')) {
+                fileType = 'document';
+                icon = 'doc';
+            } else if (file.type.includes('sheet') || file.type.includes('excel')) {
+                fileType = 'document';
+                icon = 'xls';
+            }
+
+            // Send message with file
+            handleSend({
+                fileUrl: response.url,
+                filename: file.name,
+                fileSize: file.size,
+                mimeType: file.type,
+                fileType,
+                icon
+            });
+        } catch (error) {
+            console.error('Upload failed:', error);
+            alert('Failed to upload file: ' + (error.message || 'Unknown error'));
+        } finally {
+            setIsUploading(false);
+        }
+    };
+
     const handleReaction = async (messageId, emoji) => {
         try {
             const res = await conversationsAPI.reactToMessage(messageId, emoji);
@@ -295,15 +360,36 @@ const ChatWindow = ({ chat, onBack, onUpdateChat }) => {
     };
 
     const handleDeleteMessage = async (messageId) => {
-        if (!window.confirm('Delete message?')) return;
-        try {
-            await conversationsAPI.deleteMessage(messageId);
-            setMessages(prev => prev.filter(m => m._id !== messageId));
-            socketService.socket.emit('delete-message', { conversationId: chat._id, messageId });
-        } catch (err) {
-            alert('Failed to delete message');
+        console.log('Delete message clicked:', messageId);
+        setContextMenu(null); // Close menu first
+
+        if (!window.confirm('Delete this message? This cannot be undone.')) {
+            console.log('Delete cancelled by user');
+            return;
         }
-        setContextMenu(null);
+
+        try {
+            console.log('Deleting message from backend...');
+            await conversationsAPI.deleteMessage(messageId);
+            console.log('Message deleted from backend, updating UI...');
+
+            // Remove from local state
+            setMessages(prev => prev.filter(m => m._id !== messageId));
+
+            // Emit socket event
+            socketService.socket.emit('delete-message', { conversationId: chat._id, messageId });
+            console.log('Delete successful');
+
+            // Show success toast
+            const el = document.createElement('div');
+            el.innerText = '✓ Message deleted';
+            el.style.cssText = 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#10b981;color:white;padding:12px 24px;border-radius:12px;z-index:10000;font-weight:bold';
+            document.body.appendChild(el);
+            setTimeout(() => el.remove(), 2000);
+        } catch (err) {
+            console.error('Delete failed:', err);
+            alert('Failed to delete message: ' + (err.message || 'Unknown error'));
+        }
     };
 
     // Selection & Bulk Delete Logic
@@ -1032,14 +1118,72 @@ const ChatWindow = ({ chat, onBack, onUpdateChat }) => {
                                             </div>
                                         )}
 
-                                        {/* Message Actions Menu (Absolute) */}
-                                        <div className={`absolute ${isMe ? '-left-14' : '-right-14'} top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col gap-1`}>
-                                            <button onClick={() => setActiveReactionMenu(msg._id)} className="p-2 hover:bg-white/10 rounded-full text-gray-500 hover:text-white transition-colors" title="React">
-                                                <Smile size={16} />
-                                            </button>
-                                            <button onClick={(e) => { e.preventDefault(); handleContextMenu(e, msg); }} className="p-2 hover:bg-white/10 rounded-full text-gray-500 hover:text-white transition-colors" title="More options">
-                                                <ChevronDown size={16} />
-                                            </button>
+                                        {/* Message Actions - Horizontal, positioned based on sender */}
+                                        <div className={`absolute ${isMe ? 'left-0 -translate-x-full -ml-2' : 'right-0 translate-x-full mr-2'} top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity`}>
+                                            <div className="flex items-center gap-1 bg-[#1a1a24] rounded-lg p-1 border border-white/10 shadow-xl">
+                                                {/* Reply */}
+                                                <button
+                                                    onClick={() => {
+                                                        console.log('Reply clicked');
+                                                        setReplyingTo(msg);
+                                                    }}
+                                                    className="p-1.5 hover:bg-white/10 rounded-md text-gray-400 hover:text-[#06b6d4] transition-colors"
+                                                    title="Reply"
+                                                >
+                                                    <Reply size={14} />
+                                                </button>
+
+                                                {/* React */}
+                                                <button
+                                                    onClick={() => setActiveReactionMenu(msg._id)}
+                                                    className="p-1.5 hover:bg-white/10 rounded-md text-gray-400 hover:text-[#06b6d4] transition-colors"
+                                                    title="React"
+                                                >
+                                                    <Smile size={14} />
+                                                </button>
+
+                                                {/* Copy */}
+                                                <button
+                                                    onClick={() => {
+                                                        console.log('Copy clicked');
+                                                        const textToCopy = msg.fileUrl
+                                                            ? `${msg.fileName || 'File'}: ${msg.fileUrl}`
+                                                            : msg.content;
+                                                        copyToClipboard(textToCopy);
+                                                    }}
+                                                    className="p-1.5 hover:bg-white/10 rounded-md text-gray-400 hover:text-[#06b6d4] transition-colors"
+                                                    title="Copy"
+                                                >
+                                                    <Copy size={14} />
+                                                </button>
+
+                                                {/* Forward */}
+                                                <button
+                                                    onClick={() => {
+                                                        alert('Forward button clicked!');
+                                                        console.log('Forward clicked');
+                                                        handleForwardMessage(msg);
+                                                    }}
+                                                    className="p-1.5 hover:bg-white/10 rounded-md text-gray-400 hover:text-[#06b6d4] transition-colors"
+                                                    title="Forward"
+                                                >
+                                                    <Forward size={14} />
+                                                </button>
+
+                                                {/* Delete (only for own messages) */}
+                                                {((msg.sender?._id === currentUser?.id) || (msg.sender === currentUser?.id)) && (
+                                                    <button
+                                                        onClick={() => {
+                                                            console.log('Delete clicked');
+                                                            handleDeleteMessage(msg._id);
+                                                        }}
+                                                        className="p-1.5 hover:bg-red-500/20 rounded-md text-gray-400 hover:text-red-400 transition-colors"
+                                                        title="Delete"
+                                                    >
+                                                        <Trash2 size={14} />
+                                                    </button>
+                                                )}
+                                            </div>
                                         </div>
                                     </div>
                                     <p className="text-[10px] text-gray-600 mt-1.5 ml-1 font-medium">{new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
@@ -1173,10 +1317,70 @@ const ChatWindow = ({ chat, onBack, onUpdateChat }) => {
                 )}
                 <div className="p-4 md:p-6">
                     <div className="flex items-center gap-3 md:gap-4 max-w-5xl mx-auto">
-                        <div className="flex items-center gap-1">
-                            <button onClick={() => fileInputRef.current?.click()} disabled={isUploading} className="w-10 h-10 md:w-12 md:h-12 flex items-center justify-center rounded-2xl hover:bg-white/10 text-gray-400 hover:text-[#06b6d4] transition-all">
+                        <div className="flex items-center gap-1 relative">
+                            <button
+                                onClick={() => setShowUploadMenu(!showUploadMenu)}
+                                disabled={isUploading}
+                                className="w-10 h-10 md:w-12 md:h-12 flex items-center justify-center rounded-2xl hover:bg-white/10 text-gray-400 hover:text-[#06b6d4] transition-all"
+                            >
                                 {isUploading ? <Loader2 className="animate-spin" size={20} /> : <Paperclip size={20} />}
                             </button>
+
+                            {/* Upload Menu Dropdown */}
+                            {showUploadMenu && (
+                                <div className="absolute bottom-full left-0 mb-2 bg-[#1a1a24] border border-white/10 rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200 min-w-[200px]">
+                                    <button
+                                        onClick={() => {
+                                            const input = document.createElement('input');
+                                            input.type = 'file';
+                                            input.accept = '.pdf,.doc,.docx,.txt,.xls,.xlsx,.ppt,.pptx';
+                                            input.onchange = (e) => handleFileSelect(e.target.files[0], 'document');
+                                            input.click();
+                                            setShowUploadMenu(false);
+                                        }}
+                                        className="w-full flex items-center gap-3 px-4 py-3 text-white hover:bg-white/10 transition-colors"
+                                    >
+                                        <div className="w-10 h-10 bg-purple-500/20 rounded-xl flex items-center justify-center">
+                                            <FileText size={20} className="text-purple-400" />
+                                        </div>
+                                        <span className="font-medium">Document</span>
+                                    </button>
+
+                                    <button
+                                        onClick={() => {
+                                            const input = document.createElement('input');
+                                            input.type = 'file';
+                                            input.accept = 'image/*,video/*';
+                                            input.onchange = (e) => handleFileSelect(e.target.files[0], 'media');
+                                            input.click();
+                                            setShowUploadMenu(false);
+                                        }}
+                                        className="w-full flex items-center gap-3 px-4 py-3 text-white hover:bg-white/10 transition-colors"
+                                    >
+                                        <div className="w-10 h-10 bg-blue-500/20 rounded-xl flex items-center justify-center">
+                                            <Image size={20} className="text-blue-400" />
+                                        </div>
+                                        <span className="font-medium">Videos</span>
+                                    </button>
+
+                                    <button
+                                        onClick={() => {
+                                            const input = document.createElement('input');
+                                            input.type = 'file';
+                                            input.accept = 'image/*';
+                                            input.onchange = (e) => handleFileSelect(e.target.files[0], 'image');
+                                            input.click();
+                                            setShowUploadMenu(false);
+                                        }}
+                                        className="w-full flex items-center gap-3 px-4 py-3 text-white hover:bg-white/10 transition-colors"
+                                    >
+                                        <div className="w-10 h-10 bg-pink-500/20 rounded-xl flex items-center justify-center">
+                                            <ImageIcon size={20} className="text-pink-400" />
+                                        </div>
+                                        <span className="font-medium">Images</span>
+                                    </button>
+                                </div>
+                            )}
                         </div>
 
                         <div className="flex-1 relative">
@@ -1266,27 +1470,44 @@ const ChatWindow = ({ chat, onBack, onUpdateChat }) => {
             </div>
             {/* Context Menu Portal */}
             {contextMenu && (() => {
-                // Calculate if menu should appear above or below
-                const menuHeight = 400; // Approximate menu height
+                // Smart positioning: appear next to the message
+                const menuHeight = 380;
+                const menuWidth = 200;
                 const spaceBelow = window.innerHeight - contextMenu.y;
-                const shouldShowAbove = spaceBelow < menuHeight;
+                const spaceRight = window.innerWidth - contextMenu.x;
 
-                const top = shouldShowAbove
-                    ? Math.max(10, contextMenu.y - menuHeight)
-                    : Math.min(contextMenu.y, window.innerHeight - menuHeight);
-                const left = Math.min(contextMenu.x, window.innerWidth - 220);
+                // Position menu to the right if space, otherwise left
+                let left = contextMenu.x + 10;
+                if (spaceRight < menuWidth + 20) {
+                    left = contextMenu.x - menuWidth - 10;
+                }
+
+                // Position menu below if space, otherwise above
+                let top = contextMenu.y;
+                if (spaceBelow < menuHeight) {
+                    top = Math.max(10, contextMenu.y - menuHeight + 50);
+                }
 
                 return (
                     <div
-                        className="fixed z-[9999] bg-[#1a1a24] border border-white/10 rounded-xl shadow-2xl w-52 overflow-hidden animate-in zoom-in-95 duration-200"
-                        style={{ top: `${top}px`, left: `${left}px` }}
+                        className="context-menu-container fixed z-[9999] bg-[#1a1a24]/95 backdrop-blur-xl border border-white/20 rounded-2xl shadow-2xl w-52 overflow-hidden animate-in zoom-in-95 duration-150"
+                        style={{
+                            top: `${top}px`,
+                            left: `${left}px`,
+                        }}
                         onClick={(e) => e.stopPropagation()}
+                        onMouseLeave={(e) => e.stopPropagation()}
                     >
                         <div className="p-1 space-y-0.5">
-                            <button onClick={() => { setReplyingTo(contextMenu.message); setContextMenu(null); }} className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-gray-300 hover:text-white hover:bg-white/10 rounded-lg transition-colors">
+                            <button onClick={() => {
+                                console.log('Reply clicked');
+                                setReplyingTo(contextMenu.message);
+                                setContextMenu(null);
+                            }} className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-gray-300 hover:text-white hover:bg-white/10 rounded-lg transition-colors">
                                 <Reply size={14} /> Reply
                             </button>
                             <button onClick={() => {
+                                console.log('Copy clicked');
                                 const textToCopy = contextMenu.message.fileUrl
                                     ? `${contextMenu.message.fileName || 'File'}: ${contextMenu.message.fileUrl}`
                                     : contextMenu.message.content;
@@ -1294,29 +1515,50 @@ const ChatWindow = ({ chat, onBack, onUpdateChat }) => {
                             }} className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-gray-300 hover:text-white hover:bg-white/10 rounded-lg transition-colors">
                                 <Copy size={14} /> Copy {contextMenu.message.fileUrl ? 'Link' : 'Text'}
                             </button>
-                            <button onClick={() => handleForwardMessage(contextMenu.message)} className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-gray-300 hover:text-white hover:bg-white/10 rounded-lg transition-colors">
+                            <button onClick={() => {
+                                console.log('Forward clicked');
+                                handleForwardMessage(contextMenu.message);
+                            }} className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-gray-300 hover:text-white hover:bg-white/10 rounded-lg transition-colors">
                                 <Forward size={14} /> Forward
                             </button>
-                            <button onClick={() => togglePinMessage(contextMenu.message._id)} className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-gray-300 hover:text-white hover:bg-white/10 rounded-lg transition-colors">
+                            <button onClick={() => {
+                                console.log('Pin clicked');
+                                togglePinMessage(contextMenu.message._id);
+                            }} className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-gray-300 hover:text-white hover:bg-white/10 rounded-lg transition-colors">
                                 <Pin size={14} /> {pinnedMessages.includes(contextMenu.message._id) ? 'Unpin' : 'Pin'}
                             </button>
-                            <button onClick={() => toggleStarMessage(contextMenu.message._id)} className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-gray-300 hover:text-white hover:bg-white/10 rounded-lg transition-colors">
+                            <button onClick={() => {
+                                console.log('Star clicked');
+                                toggleStarMessage(contextMenu.message._id);
+                            }} className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-gray-300 hover:text-white hover:bg-white/10 rounded-lg transition-colors">
                                 <Star size={14} className={starredMessages.includes(contextMenu.message._id) ? 'fill-yellow-400 text-yellow-400' : ''} /> {starredMessages.includes(contextMenu.message._id) ? 'Unstar' : 'Star'}
                             </button>
-                            <button onClick={() => { enableSelectionMode(contextMenu.message._id); }} className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-gray-300 hover:text-white hover:bg-white/10 rounded-lg transition-colors">
+                            <button onClick={() => {
+                                console.log('Select clicked');
+                                enableSelectionMode(contextMenu.message._id);
+                            }} className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-gray-300 hover:text-white hover:bg-white/10 rounded-lg transition-colors">
                                 <CheckSquare size={14} /> Select
                             </button>
-                            <button onClick={() => handleSaveAs(contextMenu.message)} className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-gray-300 hover:text-white hover:bg-white/10 rounded-lg transition-colors">
+                            <button onClick={() => {
+                                console.log('Save as clicked');
+                                handleSaveAs(contextMenu.message);
+                            }} className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-gray-300 hover:text-white hover:bg-white/10 rounded-lg transition-colors">
                                 <Download size={14} /> Save as
                             </button>
 
                             <div className="h-px bg-white/10 my-1"></div>
 
-                            <button onClick={() => handleReportMessage(contextMenu.message)} className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-lg transition-colors">
+                            <button onClick={() => {
+                                console.log('Report clicked');
+                                handleReportMessage(contextMenu.message);
+                            }} className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-lg transition-colors">
                                 <Flag size={14} /> Report
                             </button>
                             {((contextMenu.message.sender?._id === currentUser?.id) || (contextMenu.message.sender === currentUser?.id)) && (
-                                <button onClick={() => handleDeleteMessage(contextMenu.message._id)} className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-lg transition-colors">
+                                <button onClick={() => {
+                                    console.log('Delete clicked');
+                                    handleDeleteMessage(contextMenu.message._id);
+                                }} className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-lg transition-colors">
                                     <Trash2 size={14} /> Delete
                                 </button>
                             )}
@@ -1326,33 +1568,152 @@ const ChatWindow = ({ chat, onBack, onUpdateChat }) => {
             })()}
 
             {/* Forward Message Modal */}
-            {isForwardModalOpen && messageToForward && (
-                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-                    <div className="w-full max-w-md bg-[#13131a] rounded-3xl border border-white/10 p-8 shadow-2xl relative animate-in zoom-in duration-300">
-                        <button onClick={() => { setIsForwardModalOpen(false); setMessageToForward(null); }} className="absolute top-4 right-4 text-gray-500 hover:text-white">
-                            <X size={20} />
-                        </button>
-                        <h3 className="text-2xl font-bold text-white mb-2">Forward Message</h3>
-                        <p className="text-gray-400 text-sm mb-6">Select a conversation to forward this message to.</p>
+            <ForwardModal
+                isOpen={isForwardModalOpen}
+                message={messageToForward}
+                currentChatId={chat._id}
+                currentUserId={currentUser?.id}
+                onClose={() => { setIsForwardModalOpen(false); setMessageToForward(null); }}
+            />
+        </div>
+    );
+};
 
-                        <div className="bg-white/5 rounded-xl p-4 mb-6 border border-white/10">
-                            <p className="text-sm text-gray-300 line-clamp-3">{messageToForward.content || 'File attachment'}</p>
-                        </div>
+// Forward Modal Component
+const ForwardModal = ({ isOpen, message, currentChatId, currentUserId, onClose }) => {
+    const [forwardConversations, setForwardConversations] = useState([]);
+    const [isLoadingConvs, setIsLoadingConvs] = useState(true);
+    const [selectedConvId, setSelectedConvId] = useState(null);
 
-                        <div className="space-y-2 max-h-60 overflow-y-auto scrollbar-thin scrollbar-thumb-white/10">
-                            <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">This feature will be available soon</p>
-                            <p className="text-sm text-gray-400">You'll be able to forward messages to your contacts and groups.</p>
-                        </div>
+    useEffect(() => {
+        if (!isOpen) return;
 
-                        <button
-                            onClick={() => { setIsForwardModalOpen(false); setMessageToForward(null); }}
-                            className="w-full mt-6 py-3 bg-[#06b6d4] hover:bg-[#0891b2] text-white rounded-xl font-bold transition-all"
-                        >
-                            Close
-                        </button>
-                    </div>
+        const fetchConversations = async () => {
+            try {
+                console.log('Fetching conversations for forward...');
+                const response = await conversationsAPI.getConversations();
+                console.log('API response:', response);
+
+                // Handle both array and object responses
+                const convs = Array.isArray(response) ? response : (response.conversations || []);
+                console.log('Conversations array:', convs);
+                console.log('Current chat ID:', currentChatId);
+
+                // Show all conversations for now (including current one)
+                setForwardConversations(convs);
+                console.log('Conversations available for forwarding:', convs.length);
+                setIsLoadingConvs(false);
+            } catch (err) {
+                console.error('Failed to load conversations:', err);
+                setForwardConversations([]);
+                setIsLoadingConvs(false);
+            }
+        };
+        fetchConversations();
+    }, [isOpen, currentChatId]);
+
+    const handleForward = async () => {
+        console.log('handleForward called');
+        console.log('Selected conversation ID:', selectedConvId);
+        console.log('Message to forward:', message);
+
+        if (!selectedConvId) {
+            console.log('No conversation selected!');
+            alert('Please select a conversation');
+            return;
+        }
+        try {
+            console.log('Sending message via socket...');
+            socketService.sendMessage({
+                conversationId: selectedConvId,
+                content: message.content || 'Forwarded message',
+                messageType: message.messageType || 'text',
+                fileUrl: message.fileUrl,
+                fileName: message.fileName,
+                fileSize: message.fileSize
+            });
+            console.log('Message sent successfully');
+
+            onClose();
+            setSelectedConvId(null);
+
+            // Show success toast
+            const el = document.createElement('div');
+            el.innerText = '✓ Message forwarded';
+            el.style.cssText = 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#10b981;color:white;padding:12px 24px;border-radius:12px;z-index:10000;font-weight:bold';
+            document.body.appendChild(el);
+            setTimeout(() => el.remove(), 2000);
+        } catch (err) {
+            console.error('Forward failed:', err);
+            alert('Failed to forward message');
+        }
+    };
+
+    if (!isOpen || !message) return null;
+
+    return (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={onClose}>
+            <div className="w-full max-w-md bg-[#13131a] rounded-3xl border border-white/10 p-6 shadow-2xl relative animate-in zoom-in duration-300" onClick={(e) => e.stopPropagation()}>
+                <button onClick={onClose} className="absolute top-4 right-4 text-gray-500 hover:text-white transition-colors">
+                    <X size={20} />
+                </button>
+                <h3 className="text-2xl font-bold text-white mb-2">Forward Message</h3>
+                <p className="text-gray-400 text-sm mb-4">Select a conversation</p>
+
+                <div className="bg-white/5 rounded-xl p-3 mb-4 border border-white/10">
+                    <p className="text-xs text-gray-500 mb-1">Message:</p>
+                    <p className="text-sm text-gray-300 line-clamp-2">{message.content || 'File attachment'}</p>
                 </div>
-            )}
+
+                <div className="space-y-2 max-h-60 overflow-y-auto scrollbar-thin scrollbar-thumb-white/10 mb-4">
+                    {isLoadingConvs ? (
+                        <div className="text-center py-8 text-gray-500">Loading...</div>
+                    ) : forwardConversations.length === 0 ? (
+                        <div className="text-center py-8 text-gray-500">No other conversations</div>
+                    ) : (
+                        forwardConversations.map(conv => {
+                            const otherUser = conv.participants?.find(p => p._id !== currentUserId);
+                            const displayName = conv.isGroup ? conv.groupName : otherUser?.name;
+                            const isSelected = selectedConvId === conv._id;
+
+                            return (
+                                <button
+                                    key={conv._id}
+                                    onClick={() => setSelectedConvId(conv._id)}
+                                    className={`w-full flex items-center gap-3 p-3 rounded-xl transition-all ${isSelected ? 'bg-[#06b6d4] text-white' : 'bg-white/5 hover:bg-white/10 text-gray-300'}`}
+                                >
+                                    <img
+                                        src={conv.isGroup ? conv.groupAvatar : otherUser?.avatar}
+                                        className="w-10 h-10 rounded-full object-cover"
+                                        alt=""
+                                    />
+                                    <div className="flex-1 text-left">
+                                        <p className="font-semibold text-sm">{displayName}</p>
+                                        {conv.isGroup && <p className="text-xs opacity-75">{conv.participants?.length} members</p>}
+                                    </div>
+                                    {isSelected && <Check size={18} />}
+                                </button>
+                            );
+                        })
+                    )}
+                </div>
+
+                <div className="flex gap-3">
+                    <button
+                        onClick={onClose}
+                        className="flex-1 py-3 bg-white/10 hover:bg-white/20 text-white rounded-xl font-bold transition-all"
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        onClick={handleForward}
+                        disabled={!selectedConvId}
+                        className="flex-1 py-3 bg-[#06b6d4] hover:bg-[#0891b2] text-white rounded-xl font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                        Forward
+                    </button>
+                </div>
+            </div>
         </div>
     );
 };
