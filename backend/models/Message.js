@@ -31,6 +31,9 @@ const messageSchema = new mongoose.Schema({
     fileSize: {
         type: Number
     },
+    duration: {
+        type: Number
+    },
     mimeType: {
         type: String
     },

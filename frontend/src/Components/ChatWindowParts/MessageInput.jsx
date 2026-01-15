@@ -10,6 +10,9 @@ const MessageInput = ({ chat, onSendMessage, onTyping, replyingTo, onCancelReply
     const [showEmojiPicker, setShowEmojiPicker] = useState(false);
     const [showUploadMenu, setShowUploadMenu] = useState(false);
 
+    const [previewFile, setPreviewFile] = useState(null); // { file, type, previewUrl }
+    const [caption, setCaption] = useState('');
+
     const fileInputRef = useRef(null);
     const emojiPickerRef = useRef(null);
 
@@ -44,11 +47,14 @@ const MessageInput = ({ chat, onSendMessage, onTyping, replyingTo, onCancelReply
         }
     };
 
-    const handleSendClick = (fileData = null) => {
-        if (!message.trim() && !fileData) return;
+    const handleSendClick = (fileData = null, captionText = null) => {
+        const textToSend = captionText !== null ? captionText : message;
+        if (!textToSend.trim() && !fileData) return;
 
-        onSendMessage(message, fileData);
+        onSendMessage(textToSend, fileData);
         setMessage('');
+        setCaption('');
+        setPreviewFile(null);
         onTyping(false);
         setShowEmojiPicker(false);
     };
@@ -63,6 +69,29 @@ const MessageInput = ({ chat, onSendMessage, onTyping, replyingTo, onCancelReply
     const handleFileSelect = async (file, type) => {
         if (!file) return;
 
+        let previewUrl = null;
+        let fileType = type;
+
+        // Auto-detect type if generic 'file' or 'media'
+        if (type === 'media') {
+             if (file.type.startsWith('image/')) fileType = 'image';
+             else if (file.type.startsWith('video/')) fileType = 'video';
+        } else if (type === 'document') {
+             // Keep as document
+        } else if (file.type.startsWith('image/')) {
+             fileType = 'image';
+        } else if (file.type.startsWith('video/')) {
+             fileType = 'video';
+        }
+
+        if (fileType === 'image' || fileType === 'video') {
+            previewUrl = URL.createObjectURL(file);
+        }
+
+        setPreviewFile({ file, type: fileType, previewUrl });
+    };
+
+    const uploadAndSend = async (file, type, captionText = null) => {
         console.log('File selected:', file.name, 'Type:', type);
         setIsUploading(true);
 
@@ -74,6 +103,7 @@ const MessageInput = ({ chat, onSendMessage, onTyping, replyingTo, onCancelReply
             // Determine file type and icon
             let fileType = 'file';
             let icon = 'file';
+            let duration = null;
 
             if (file.type.startsWith('image/')) {
                 fileType = 'image';
@@ -81,6 +111,22 @@ const MessageInput = ({ chat, onSendMessage, onTyping, replyingTo, onCancelReply
             } else if (file.type.startsWith('video/')) {
                 fileType = 'video';
                 icon = 'video';
+                // Extract video duration
+                try {
+                    const videoEl = document.createElement('video');
+                    videoEl.preload = 'metadata';
+                    videoEl.src = URL.createObjectURL(file);
+                    await new Promise((resolve) => {
+                        videoEl.onloadedmetadata = () => {
+                            duration = Math.round(videoEl.duration);
+                            URL.revokeObjectURL(videoEl.src);
+                            resolve();
+                        };
+                        videoEl.onerror = () => resolve();
+                    });
+                } catch (e) {
+                    console.error('Failed to extract video duration', e);
+                }
             } else if (file.type.includes('pdf')) {
                 fileType = 'document';
                 icon = 'pdf';
@@ -90,6 +136,9 @@ const MessageInput = ({ chat, onSendMessage, onTyping, replyingTo, onCancelReply
             } else if (file.type.includes('sheet') || file.type.includes('excel')) {
                 fileType = 'document';
                 icon = 'xls';
+            } else {
+                 fileType = 'document';
+                 icon = 'file'; // generic
             }
 
             // Send message with file
@@ -99,8 +148,10 @@ const MessageInput = ({ chat, onSendMessage, onTyping, replyingTo, onCancelReply
                 fileSize: file.size,
                 mimeType: file.type,
                 fileType,
+                duration,
                 icon: response.icon || icon
-            });
+            }, captionText);
+
         } catch (error) {
             console.error('Upload failed:', error);
 
@@ -113,6 +164,11 @@ const MessageInput = ({ chat, onSendMessage, onTyping, replyingTo, onCancelReply
         } finally {
             setIsUploading(false);
             if (fileInputRef.current) fileInputRef.current.value = '';
+            // Clean up preview if exists
+            if (previewFile?.previewUrl) {
+                URL.revokeObjectURL(previewFile.previewUrl);
+                setPreviewFile(null);
+            }
         }
     };
 
@@ -129,6 +185,94 @@ const MessageInput = ({ chat, onSendMessage, onTyping, replyingTo, onCancelReply
 
         handleFileSelect(file, type);
     };
+
+    // Render Image Preview Modal
+    if (previewFile) {
+        let previewContent;
+        if (previewFile.type === 'image') {
+            previewContent = (
+                <img 
+                    src={previewFile.previewUrl} 
+                    alt="Preview" 
+                    className="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
+                />
+            );
+        } else if (previewFile.type === 'video') {
+             previewContent = (
+                <video 
+                    src={previewFile.previewUrl} 
+                    controls
+                    className="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
+                />
+            );
+        } else {
+            // Document / Generic
+            previewContent = (
+                <div className="bg-[#1a1a24] p-8 rounded-2xl border border-white/10 flex flex-col items-center justify-center gap-4 shadow-2xl max-w-sm text-center">
+                    <div className="w-20 h-20 bg-white/5 rounded-xl flex items-center justify-center">
+                         <FileText size={40} className="text-[#06b6d4]" />
+                    </div>
+                    <div>
+                        <p className="text-white font-semibold text-lg break-all">{previewFile.file.name}</p>
+                        <p className="text-gray-400 text-sm mt-1">{(previewFile.file.size / 1024 / 1024).toFixed(2)} MB</p>
+                    </div>
+                </div>
+            );
+        }
+
+        return (
+            <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex flex-col animate-in fade-in duration-200">
+                {/* Header */}
+                <div className="flex items-center justify-between p-4">
+                    <button 
+                        onClick={() => {
+                            setPreviewFile(null);
+                            setCaption('');
+                        }}
+                        className="p-2 hover:bg-white/10 rounded-full text-white transition-colors"
+                    >
+                        <X size={24} />
+                    </button>
+                    <span className="text-white font-medium">Send {previewFile.type === 'image' ? 'Image' : previewFile.type === 'video' ? 'Video' : 'File'}</span>
+                    <div className="w-10" /> {/* Spacer */}
+                </div>
+
+                {/* File Preview */}
+                <div className="flex-1 flex items-center justify-center p-4 overflow-hidden">
+                    {previewContent}
+                </div>
+
+                {/* Caption Input */}
+                <div className="p-4 bg-[#1a1a24] border-t border-white/10">
+                    <div className="max-w-3xl mx-auto flex gap-2 sm:gap-4 items-end">
+                         <div className="flex-1 relative">
+                            <textarea
+                                value={caption}
+                                onChange={(e) => setCaption(e.target.value)}
+                                placeholder="Add a caption..."
+                                className="w-full px-4 py-3 rounded-xl bg-white/10 border border-white/10 outline-none focus:border-[#06b6d4] focus:bg-white/15 text-white placeholder-gray-500 transition-all font-medium text-sm sm:text-base resize-none min-h-[50px] max-h-[150px]"
+                                rows={1}
+                                autoFocus
+                                onKeyDown={(e) => {
+                                    if(e.key === 'Enter' && !e.shiftKey) {
+                                        e.preventDefault();
+                                        if(!isUploading) uploadAndSend(previewFile.file, previewFile.type, caption);
+                                    }
+                                }}
+                            />
+                        </div>
+                        <button 
+                            onClick={() => uploadAndSend(previewFile.file, previewFile.type, caption)}
+                            disabled={isUploading}
+                            className="w-12 h-12 flex items-center justify-center rounded-xl bg-gradient-to-br from-[#06b6d4] to-[#0891b2] text-white shadow-xl shadow-[#06b6d4]/30 hover:scale-105 transition-all transform active:scale-95 flex-shrink-0 mb-1"
+                        >
+                             {isUploading ? <Loader2 className="animate-spin w-6 h-6" /> : <Send className="w-6 h-6" />}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="border-t border-white/10 bg-white/5 backdrop-blur-lg">

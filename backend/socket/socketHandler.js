@@ -28,7 +28,7 @@ const socketHandler = (io) => {
 
     io.on('connection', async (socket) => {
         await setUserOnline(socket.userId, socket.id);
-        await User.findByIdAndUpdate(socket.userId, { status: 'online', lastSeen: new Date() });
+        await User.findByIdAndUpdate(socket.userId, { lastSeen: new Date() });
         socket.broadcast.emit('user-online', { userId: socket.userId, name: socket.user.name });
         socket.join(socket.userId);
 
@@ -39,7 +39,7 @@ const socketHandler = (io) => {
 
         socket.on('send-message', async (data) => {
             try {
-                const { conversationId, content, messageType = 'text', fileUrl, fileName, fileSize, mimeType, fileIcon } = data;
+                const { conversationId, content, messageType = 'text', fileUrl, fileName, fileSize, mimeType, fileIcon, duration } = data;
                 const conversation = await Conversation.findById(conversationId);
                 if (!conversation || !conversation.isParticipant(socket.userId)) return;
 
@@ -52,7 +52,8 @@ const socketHandler = (io) => {
                     fileName,
                     fileSize,
                     mimeType,
-                    fileIcon
+                    fileIcon,
+                    duration
                 });
                 await message.populate('sender', 'name avatar');
 
@@ -128,7 +129,8 @@ const socketHandler = (io) => {
                         fileName: message.fileName,
                         fileSize: message.fileSize,
                         mimeType: message.mimeType,
-                        fileIcon: message.fileIcon
+                        fileIcon: message.fileIcon,
+                        duration: message.duration
                     }
                 });
             } catch (error) {
@@ -144,6 +146,40 @@ const socketHandler = (io) => {
         socket.on('typing-stop', async ({ conversationId }) => {
             await removeUserTyping(conversationId, socket.userId);
             socket.to(conversationId).emit('user-stopped-typing', { conversationId, userId: socket.userId });
+        });
+
+        socket.on('mark-conversation-read', async ({ conversationId }) => {
+            try {
+                const conversation = await Conversation.findById(conversationId);
+                if (!conversation) return;
+
+                const userSettings = conversation.userSettings.find(s => s.userId.toString() === socket.userId);
+                const readAt = new Date();
+
+                if (userSettings) {
+                    userSettings.unreadCount = 0;
+                    userSettings.isUnread = false;
+                    userSettings.lastReadAt = readAt;
+                } else {
+                    conversation.userSettings.push({
+                        userId: socket.userId,
+                        unreadCount: 0,
+                        isUnread: false,
+                        lastReadAt: readAt
+                    });
+                }
+
+                await conversation.save();
+
+                // Broadcast read receipt to other participants
+                socket.to(conversationId).emit('conversation-read', {
+                    conversationId,
+                    userId: socket.userId,
+                    readAt
+                });
+            } catch (error) {
+                console.error('Mark read error:', error);
+            }
         });
 
         socket.on('friend-request-sent', ({ targetUserId, request }) => {
@@ -187,7 +223,7 @@ const socketHandler = (io) => {
 
         socket.on('disconnect', async () => {
             await setUserOffline(socket.userId, socket.id);
-            await User.findByIdAndUpdate(socket.userId, { status: 'offline', lastSeen: new Date() });
+            await User.findByIdAndUpdate(socket.userId, { lastSeen: new Date() });
             socket.broadcast.emit('user-offline', { userId: socket.userId, lastSeen: new Date() });
         });
     });
