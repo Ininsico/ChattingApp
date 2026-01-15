@@ -46,29 +46,66 @@ const socketHandler = (io) => {
                 const message = await Message.create({ conversationId, sender: socket.userId, content, messageType, fileUrl });
                 await message.populate('sender', 'name avatar');
 
-                // Update conversation: lastMessage, timestamps, and unread counts
+                // Update conversation: lastMessage, timestamps
                 conversation.lastMessage = message._id;
                 conversation.lastMessageAt = new Date();
 
-                // Update unread counts for other participants
-                conversation.participants.forEach(pId => {
-                    const participantId = pId.toString();
-                    if (participantId !== socket.userId) {
-                        const settings = conversation.userSettings.find(s => s.userId.toString() === participantId);
-                        if (settings) {
-                            settings.unreadCount = (settings.unreadCount || 0) + 1;
-                        } else {
-                            conversation.userSettings.push({ userId: participantId, unreadCount: 1 });
-                        }
-                        // Emit real-time unread update
-                        const newCount = settings ? settings.unreadCount : 1;
-                        io.to(participantId).emit('unread-update', { conversationId, unreadCount: newCount });
-                    }
-                });
+                // Reset sender's unread count and update lastReadAt (Reply = Read)
+                let senderSettings = conversation.userSettings.find(s => s.userId.toString() === socket.userId);
+                if (senderSettings) {
+                    senderSettings.unreadCount = 0;
+                    senderSettings.isUnread = false;
+                    senderSettings.lastReadAt = new Date();
+                } else {
+                    conversation.userSettings.push({
+                        userId: socket.userId,
+                        unreadCount: 0,
+                        isUnread: false,
+                        lastReadAt: new Date()
+                    });
+                    senderSettings = conversation.userSettings[conversation.userSettings.length - 1];
+                }
 
+                // Calculate unread counts for OTHER participants only
+                for (const pId of conversation.participants) {
+                    const participantId = pId.toString();
+
+                    // Skip the sender - they should always have 0 unread
+                    if (participantId === socket.userId) continue;
+
+                    const participantSettings = conversation.userSettings.find(s => s.userId.toString() === participantId);
+                    const lastReadAt = participantSettings?.lastReadAt || new Date(0);
+
+                    // Count messages from others sent after this participant's last reply
+                    const unreadCount = await Message.countDocuments({
+                        conversationId,
+                        sender: { $ne: participantId },
+                        createdAt: { $gt: lastReadAt },
+                        isDeleted: false
+                    });
+
+                    // Update the count in conversation settings
+                    if (participantSettings) {
+                        participantSettings.unreadCount = unreadCount;
+                    } else {
+                        conversation.userSettings.push({
+                            userId: participantId,
+                            unreadCount
+                        });
+                    }
+
+                    // Emit real-time unread update
+                    io.to(participantId).emit('unread-update', { conversationId, unreadCount });
+                }
+
+                // Notify sender their count is 0
+                io.to(socket.userId).emit('unread-update', { conversationId, unreadCount: 0 });
+
+                // Save all changes once
                 await conversation.save();
                 await removeUserTyping(conversationId, socket.userId);
 
+                // Emit the message
                 io.to(conversationId).emit('new-message', {
                     conversationId,
                     message: {

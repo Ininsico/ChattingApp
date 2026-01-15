@@ -87,21 +87,34 @@ const DirectMessages = ({ initialChatId }) => {
         return conv.userSettings?.find(s => s.userId === currentUser?.id)?.unreadCount || 0;
     };
 
-    const handleSelectChat = (chat) => {
+    const isUnread = (conv) => {
+        const settings = conv.userSettings?.find(s => s.userId === currentUser?.id);
+        return (settings?.unreadCount || 0) > 0 || settings?.isUnread;
+    };
+
+    const handleSelectChat = async (chat) => {
         setSelectedChat(chat);
-        // Optimistically clear unread count in frontend state
+        // Clear unread count when opening chat
         if (chat) {
+            // Optimistically update UI
             setConversations(prev => prev.map(c => {
                 if (c._id === chat._id) {
                     const newSettings = c.userSettings ? [...c.userSettings] : [];
                     const userIndex = newSettings.findIndex(s => s.userId === currentUser.id);
                     if (userIndex > -1) {
-                        newSettings[userIndex] = { ...newSettings[userIndex], unreadCount: 0 };
+                        newSettings[userIndex] = { ...newSettings[userIndex], unreadCount: 0, isUnread: false };
                     }
                     return { ...c, userSettings: newSettings };
                 }
                 return c;
             }));
+
+            // Persist to backend
+            try {
+                await conversationsAPI.updateSettings(chat._id, 'read', true);
+            } catch (err) {
+                console.error('Failed to mark as read:', err);
+            }
         }
     };
 
@@ -115,7 +128,7 @@ const DirectMessages = ({ initialChatId }) => {
     const handleSearchUsers = async (e) => {
         e.preventDefault();
         if (!userSearchEmail.trim()) return;
-        
+
         setIsSearching(true);
         try {
             const res = await userAPI.searchUsers(userSearchEmail);
@@ -134,7 +147,7 @@ const DirectMessages = ({ initialChatId }) => {
             const res = await conversationsAPI.getOrCreateDirect(userId);
             if (res.success) {
                 const newChat = res.conversation;
-                
+
                 // Add to list if not exists
                 setConversations(prev => {
                     const exists = prev.find(c => c._id === newChat._id);
@@ -157,7 +170,7 @@ const DirectMessages = ({ initialChatId }) => {
         const currentUserId = currentUser?.id || currentUser?._id;
         const other = conv.participants.find(p => (p._id || p.id) !== currentUserId);
         const matchesSearch = other?.name.toLowerCase().includes(searchTerm.toLowerCase());
-        const matchesFilter = filter === 'unread' ? getUnreadCount(conv) > 0 : true;
+        const matchesFilter = filter === 'unread' ? isUnread(conv) : true;
         return matchesSearch && matchesFilter;
     });
 
@@ -186,14 +199,14 @@ const DirectMessages = ({ initialChatId }) => {
                         />
                     </div>
                     <div className="flex gap-2">
-                        <button 
-                            onClick={() => setFilter('all')} 
+                        <button
+                            onClick={() => setFilter('all')}
                             className={`px-4 py-1.5 rounded-lg text-xs font-medium transition-all ${filter === 'all' ? 'bg-[#06b6d4] text-white' : 'bg-white/5 text-gray-400 hover:bg-white/10'}`}
                         >
                             All
                         </button>
-                        <button 
-                            onClick={() => setFilter('unread')} 
+                        <button
+                            onClick={() => setFilter('unread')}
                             className={`px-4 py-1.5 rounded-lg text-xs font-medium transition-all ${filter === 'unread' ? 'bg-[#06b6d4] text-white' : 'bg-white/5 text-gray-400 hover:bg-white/10'}`}
                         >
                             Unread
@@ -223,9 +236,9 @@ const DirectMessages = ({ initialChatId }) => {
                                             <h3 className="font-semibold text-sm truncate text-white">{other?.name}</h3>
                                             <div className="flex flex-col items-end">
                                                 <span className="text-xs text-gray-500 mb-1">{conv.lastMessageAt ? new Date(conv.lastMessageAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}</span>
-                                                {getUnreadCount(conv) > 0 && (
+                                                {isUnread(conv) && (
                                                     <span className="bg-[#06b6d4] text-white text-[10px] font-bold px-1.5 min-w-[1.2rem] h-5 rounded-full flex items-center justify-center">
-                                                        {getUnreadCount(conv)}
+                                                        {getUnreadCount(conv) > 0 ? getUnreadCount(conv) : ''}
                                                     </span>
                                                 )}
                                             </div>
@@ -246,15 +259,15 @@ const DirectMessages = ({ initialChatId }) => {
                         <button onClick={() => { setIsNewChatOpen(false); setSearchResults([]); setUserSearchEmail(''); }} className="absolute top-4 right-4 text-gray-500 hover:text-white"><X size={20} /></button>
                         <h3 className="text-2xl font-bold text-white mb-2">Start New Chat</h3>
                         <p className="text-gray-400 text-sm mb-6">Search for a user by email to start chatting.</p>
-                        
+
                         <form onSubmit={handleSearchUsers} className="space-y-4 mb-6">
                             <div className="relative">
-                                <input 
-                                    type="text" 
-                                    value={userSearchEmail} 
-                                    onChange={(e) => setUserSearchEmail(e.target.value)} 
-                                    placeholder="Enter email or name..." 
-                                    className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white outline-none focus:border-[#06b6d4] pr-12" 
+                                <input
+                                    type="text"
+                                    value={userSearchEmail}
+                                    onChange={(e) => setUserSearchEmail(e.target.value)}
+                                    placeholder="Enter email or name..."
+                                    className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white outline-none focus:border-[#06b6d4] pr-12"
                                     autoFocus
                                 />
                                 <button type="submit" className="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-[#06b6d4] hover:bg-[#06b6d4]/10 rounded-lg transition-colors">
@@ -266,7 +279,7 @@ const DirectMessages = ({ initialChatId }) => {
                         <div className="space-y-2 max-h-60 overflow-y-auto scrollbar-thin scrollbar-thumb-white/10">
                             {searchResults.length > 0 ? (
                                 searchResults.map(user => (
-                                    <div 
+                                    <div
                                         key={user._id}
                                         onClick={() => handleStartChat(user._id)}
                                         className="p-3 rounded-xl bg-white/5 hover:bg-[#06b6d4]/20 border border-white/5 hover:border-[#06b6d4]/50 cursor-pointer flex items-center gap-3 transition-all"

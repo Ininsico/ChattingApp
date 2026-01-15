@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { 
-    User, Mail, Phone, MapPin, Briefcase, Hash, Users, Clock, 
+import {
+    User, Mail, Phone, MapPin, Briefcase, Hash, Users, Clock,
     Shield, LogOut, Camera, Image as ImageIcon, Globe, Activity,
     Save, X, Edit2, Loader2, Smartphone, Monitor, Trash2
 } from 'lucide-react';

@@ -62,9 +62,9 @@ router.get('/:id/messages', protect, async (req, res) => {
         let settings = conversation.userSettings.find(s => s.userId.toString() === req.user.id);
 
         if (settings) {
-            // Reset unread count
-            settings.unreadCount = 0;
-            settings.lastReadAt = new Date();
+            // reset logic removed to support "unread until reply" feature
+            // settings.unreadCount = 0;
+            // settings.lastReadAt = new Date();
         } else {
             // Create settings if not exist
             conversation.userSettings.push({
@@ -361,6 +361,11 @@ router.patch('/:id/settings', protect, async (req, res) => {
                 break;
             case 'unread':
                 settings.isUnread = !!value;
+                break;
+            case 'read':
+                settings.unreadCount = 0;
+                settings.isUnread = false;
+                settings.lastReadAt = new Date();
                 break;
             case 'clear':
                 settings.clearedHistoryAt = new Date();

@@ -11,13 +11,13 @@ const GroupMessages = ({ initialChatId }) => {
     const [isLoading, setIsLoading] = useState(true);
     const [isCreateOpen, setIsCreateOpen] = useState(false);
     const [groupName, setGroupName] = useState('');
-    
+
     // Member selection states
     const [selectedParticipants, setSelectedParticipants] = useState([]); // Array of user objects
     const [userSearchTerm, setUserSearchTerm] = useState('');
     const [userSearchResults, setUserSearchResults] = useState([]);
     const [isSearchingUsers, setIsSearchingUsers] = useState(false);
-    
+
     const [isSubmitting, setIsSubmitting] = useState(false);
 
     const currentUser = getCurrentUser();
@@ -74,23 +74,36 @@ const GroupMessages = ({ initialChatId }) => {
         return conv.userSettings?.find(s => s.userId === currentUser?.id)?.unreadCount || 0;
     };
 
-    const handleSelectChat = (chat) => {
+    const isUnread = (conv) => {
+        const settings = conv.userSettings?.find(s => s.userId === currentUser?.id);
+        return (settings?.unreadCount || 0) > 0 || settings?.isUnread;
+    };
+
+    const handleSelectChat = async (chat) => {
         if (!chat) {
             setSelectedChat(null);
             return;
         }
         setSelectedChat(chat);
+        // Clear unread count when opening chat
         setConversations(prev => prev.map(c => {
             if (c._id === chat._id) {
                 const newSettings = c.userSettings ? [...c.userSettings] : [];
                 const userIndex = newSettings.findIndex(s => s.userId === currentUser.id);
                 if (userIndex > -1) {
-                    newSettings[userIndex] = { ...newSettings[userIndex], unreadCount: 0 };
+                    newSettings[userIndex] = { ...newSettings[userIndex], unreadCount: 0, isUnread: false };
                 }
                 return { ...c, userSettings: newSettings };
             }
             return c;
         }));
+
+        // Persist to backend
+        try {
+            await conversationsAPI.updateSettings(chat._id, 'read', true);
+        } catch (err) {
+            console.error('Failed to mark as read:', err);
+        }
     };
 
     const handleSearchUsers = async (term) => {
@@ -129,9 +142,9 @@ const GroupMessages = ({ initialChatId }) => {
     const handleCreateGroup = async (e) => {
         e.preventDefault();
         const participantIds = selectedParticipants.map(p => p._id);
-        
+
         if (!groupName || participantIds.length < 2) return;
-        
+
         setIsSubmitting(true);
         try {
             const res = await conversationsAPI.createGroup(groupName, participantIds);
@@ -273,9 +286,9 @@ const GroupMessages = ({ initialChatId }) => {
                                             <span className="text-[10px] opacity-60 flex-shrink-0 ml-2 font-medium">
                                                 {chat.lastMessageAt ? new Date(chat.lastMessageAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
                                             </span>
-                                            {getUnreadCount(chat) > 0 && (
+                                            {isUnread(chat) && (
                                                 <span className="bg-white text-[#8b5cf6] text-[10px] font-bold px-1.5 min-w-[1.2rem] h-5 rounded-full flex items-center justify-center mt-1 shadow-sm">
-                                                    {getUnreadCount(chat)}
+                                                    {getUnreadCount(chat) > 0 ? getUnreadCount(chat) : ''}
                                                 </span>
                                             )}
                                         </div>
@@ -322,14 +335,14 @@ const GroupMessages = ({ initialChatId }) => {
 
                             <div className="flex-1 flex flex-col min-h-0">
                                 <label className="text-xs text-gray-400 mb-2 block uppercase tracking-wider font-bold">Add Members (Min 2)</label>
-                                
+
                                 {/* Selected Members Chips */}
                                 <div className="flex flex-wrap gap-2 mb-3">
                                     {selectedParticipants.map(participant => (
                                         <div key={participant._id} className="bg-[#8b5cf6]/20 border border-[#8b5cf6]/50 text-white text-xs px-2 py-1 rounded-lg flex items-center gap-1">
                                             <span>{participant.name}</span>
-                                            <button 
-                                                type="button" 
+                                            <button
+                                                type="button"
                                                 onClick={() => removeParticipant(participant._id)}
                                                 className="hover:text-red-400"
                                             >
@@ -341,8 +354,8 @@ const GroupMessages = ({ initialChatId }) => {
 
                                 {/* User Search */}
                                 <div className="relative mb-3">
-                                    <input 
-                                        type="text" 
+                                    <input
+                                        type="text"
                                         value={userSearchTerm}
                                         onChange={(e) => handleSearchUsers(e.target.value)}
                                         placeholder="Search people to add..."

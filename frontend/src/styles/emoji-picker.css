@@ -1,0 +1,160 @@
+/* Custom Emoji Picker Styling - Premium Dark Theme */
+
+/* Hide the ugly category sidebar completely */
+.emoji-picker-custom-wrapper .epr-category-nav {
+  display: none !important;
+}
+
+/* Remove the preview section at the bottom */
+.emoji-picker-custom-wrapper .epr-preview {
+  display: none !important;
+}
+
+/* Main emoji picker container */
+.emoji-picker-custom-wrapper .epr-main {
+  background: transparent !important;
+  border: none !important;
+}
+
+/* Search bar styling */
+.emoji-picker-custom-wrapper .epr-search-container {
+  background: rgba(255, 255, 255, 0.05) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  border-radius: 12px !important;
+  padding: 8px 12px !important;
+  margin: 12px 16px !important;
+}
+
+.emoji-picker-custom-wrapper .epr-search {
+  background: transparent !important;
+  color: white !important;
+  font-size: 14px !important;
+}
+
+.emoji-picker-custom-wrapper .epr-search::placeholder {
+  color: rgba(255, 255, 255, 0.4) !important;
+}
+
+.emoji-picker-custom-wrapper .epr-search:focus {
+  outline: none !important;
+  border-color: #06b6d4 !important;
+}
+
+/* Emoji grid container - smooth scrolling */
+.emoji-picker-custom-wrapper .epr-body {
+  background: transparent !important;
+  padding: 0 12px 12px 12px !important;
+  overflow-y: auto !important;
+  scroll-behavior: smooth !important;
+}
+
+/* Custom scrollbar for emoji list */
+.emoji-picker-custom-wrapper .epr-body::-webkit-scrollbar {
+  width: 8px;
+}
+
+.emoji-picker-custom-wrapper .epr-body::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 10px;
+  margin: 8px 0;
+}
+
+.emoji-picker-custom-wrapper .epr-body::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #06b6d4, #0891b2);
+  border-radius: 10px;
+  transition: all 0.3s ease;
+}
+
+.emoji-picker-custom-wrapper .epr-body::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #0891b2, #06b6d4);
+  box-shadow: 0 0 10px rgba(6, 182, 212, 0.5);
+}
+
+/* Category labels */
+.emoji-picker-custom-wrapper .epr-emoji-category-label {
+  color: #06b6d4 !important;
+  font-weight: 700 !important;
+  font-size: 11px !important;
+  text-transform: uppercase !important;
+  letter-spacing: 1px !important;
+  padding: 12px 8px 8px 8px !important;
+  background: transparent !important;
+  position: sticky !important;
+  top: 0 !important;
+  z-index: 10 !important;
+  backdrop-filter: blur(10px) !important;
+  margin-top: 8px !important;
+}
+
+/* Individual emoji buttons */
+.emoji-picker-custom-wrapper .epr-emoji-category button {
+  background: transparent !important;
+  border-radius: 8px !important;
+  transition: all 0.2s ease !important;
+  padding: 6px !important;
+}
+
+.emoji-picker-custom-wrapper .epr-emoji-category button:hover {
+  background: rgba(6, 182, 212, 0.15) !important;
+  transform: scale(1.2) !important;
+}
+
+.emoji-picker-custom-wrapper .epr-emoji-category button:active {
+  transform: scale(1.1) !important;
+}
+
+/* Emoji size */
+.emoji-picker-custom-wrapper .epr-emoji-img {
+  width: 28px !important;
+  height: 28px !important;
+}
+
+/* Skin tone picker */
+.emoji-picker-custom-wrapper .epr-skin-tones {
+  background: rgba(255, 255, 255, 0.05) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  border-radius: 12px !important;
+  padding: 4px !important;
+}
+
+.emoji-picker-custom-wrapper .epr-tone {
+  border-radius: 6px !important;
+  transition: all 0.2s ease !important;
+}
+
+.emoji-picker-custom-wrapper .epr-tone:hover {
+  transform: scale(1.1) !important;
+  background: rgba(6, 182, 212, 0.2) !important;
+}
+
+/* Remove any default borders */
+.emoji-picker-custom-wrapper aside.epr-emoji-picker {
+  border: none !important;
+  background: transparent !important;
+}
+
+/* Emoji variation picker popup */
+.emoji-picker-custom-wrapper .epr-emoji-variation-picker {
+  background: #1a1a24 !important;
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+  border-radius: 12px !important;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5) !important;
+  backdrop-filter: blur(20px) !important;
+}
+
+/* No results message */
+.emoji-picker-custom-wrapper .epr-no-results {
+  color: rgba(255, 255, 255, 0.5) !important;
+  font-size: 14px !important;
+  padding: 40px 20px !important;
+}
+
+/* Loading state */
+.emoji-picker-custom-wrapper .epr-loading {
+  color: #06b6d4 !important;
+}
+
+/* Smooth animations */
+.emoji-picker-custom-wrapper * {
+  transition: background-color 0.2s ease, transform 0.2s ease !important;
+}

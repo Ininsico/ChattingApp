@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { 
-    ArrowLeft, Search, MoreVertical, Send, Image, Paperclip, Loader2, 
+import { useState, useEffect, useRef } from 'react';
+import {
+    ArrowLeft, Search, MoreVertical, Send, Image, Paperclip, Loader2,
     UserPlus, UserMinus, Trash2, Smile, X, ChevronUp, ChevronDown,
     Bell, BellOff, ExternalLink, MessageSquareX, Flag, Info, ChevronRight, Check,
     Reply, Forward, Pin, Star, Copy, CheckSquare, Code, MousePointer2, Download, FileText, FileArchive, File, Music
@@ -8,6 +8,7 @@ import {
 import { conversationsAPI, getCurrentUser, uploadAPI, userAPI } from '../services/api';
 import socketService from '../services/socket';
 import EmojiPicker, { Theme } from 'emoji-picker-react';
+import '../styles/emoji-picker.css';
 
 const EMOJIS = [
     { name: 'heart', char: '❤️' },
@@ -29,7 +30,7 @@ const ChatWindow = ({ chat, onBack, onUpdateChat }) => {
     const [replyingTo, setReplyingTo] = useState(null);
     const [pinnedMessages, setPinnedMessages] = useState([]); // Local state for demo
     const [showGroupStats, setShowGroupStats] = useState(false);
-    
+
     // Selection Mode States
     const [isSelectionMode, setIsSelectionMode] = useState(false);
     const [selectedMessageIds, setSelectedMessageIds] = useState([]);
@@ -44,6 +45,11 @@ const ChatWindow = ({ chat, onBack, onUpdateChat }) => {
     const [isMenuOpen, setIsMenuOpen] = useState(false);
     const [showMuteOptions, setShowMuteOptions] = useState(false);
     const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+
+    // New feature states
+    const [starredMessages, setStarredMessages] = useState([]);
+    const [isForwardModalOpen, setIsForwardModalOpen] = useState(false);
+    const [messageToForward, setMessageToForward] = useState(null);
 
     const messagesEndRef = useRef(null);
     const fileInputRef = useRef(null);
@@ -149,14 +155,30 @@ const ChatWindow = ({ chat, onBack, onUpdateChat }) => {
             }
         };
 
+        const handleEscKey = (event) => {
+            if (event.key === 'Escape') {
+                if (showEmojiPicker) {
+                    setShowEmojiPicker(false);
+                    event.preventDefault();
+                } else if (isSearchOpen) {
+                    toggleSearch();
+                } else if (contextMenu) {
+                    setContextMenu(null);
+                }
+            }
+        };
+
         if (isMenuOpen || contextMenu || activeReactionMenu || showEmojiPicker) {
             document.addEventListener('mousedown', handleClickOutside);
         }
 
+        document.addEventListener('keydown', handleEscKey);
+
         return () => {
             document.removeEventListener('mousedown', handleClickOutside);
+            document.removeEventListener('keydown', handleEscKey);
         };
-    }, [isMenuOpen, contextMenu, activeReactionMenu]);
+    }, [isMenuOpen, contextMenu, activeReactionMenu, showEmojiPicker, isSearchOpen]);
 
     // Search Functionality
     useEffect(() => {
@@ -175,9 +197,9 @@ const ChatWindow = ({ chat, onBack, onUpdateChat }) => {
 
         setSearchMatches(matches);
         setCurrentMatchIndex(matches.length > 0 ? matches.length - 1 : 0);
-        
+
         if (matches.length > 0) {
-             scrollToMessage(matches[matches.length - 1]);
+            scrollToMessage(matches[matches.length - 1]);
         }
     }, [searchQuery, messages]);
 
@@ -221,7 +243,7 @@ const ChatWindow = ({ chat, onBack, onUpdateChat }) => {
         const parts = text.split(new RegExp(`(${query})`, 'gi'));
         return (
             <span>
-                {parts.map((part, i) => 
+                {parts.map((part, i) =>
                     part.toLowerCase() === query.toLowerCase() ? (
                         <span key={i} className="bg-yellow-500/50 text-white px-0.5 rounded animate-pulse font-bold">{part}</span>
                     ) : (
@@ -237,8 +259,8 @@ const ChatWindow = ({ chat, onBack, onUpdateChat }) => {
 
         const messageData = {
             conversationId: chat._id,
-            content: fileData 
-                ? (fileData.filename || `Sent a ${fileData.fileType}`) 
+            content: fileData
+                ? (fileData.filename || `Sent a ${fileData.fileType}`)
                 : message,
             messageType: fileData ? fileData.fileType : 'text',
             fileUrl: fileData ? fileData.fileUrl : null,
@@ -308,10 +330,10 @@ const ChatWindow = ({ chat, onBack, onUpdateChat }) => {
         try {
             // We'll process these in parallel for now
             await Promise.all(selectedMessageIds.map(id => conversationsAPI.deleteMessage(id)));
-            
+
             // Remove from local state
             setMessages(prev => prev.filter(m => !selectedMessageIds.includes(m._id)));
-            
+
             // Emit socket events for each
             selectedMessageIds.forEach(id => {
                 socketService.socket.emit('delete-message', { conversationId: chat._id, messageId: id });
@@ -345,41 +367,122 @@ const ChatWindow = ({ chat, onBack, onUpdateChat }) => {
 
     const copyToClipboard = async (text) => {
         try {
+            if (!text || text.trim() === '') {
+                alert('No text content to copy');
+                setContextMenu(null);
+                return;
+            }
+
             await navigator.clipboard.writeText(text);
-            // Simple visual feedback could be improved with a toast system later
+
+            // Visual feedback toast
             const el = document.createElement('div');
-            el.innerText = 'Copied to clipboard';
+            el.innerText = '✓ Copied to clipboard';
             el.style.position = 'fixed';
             el.style.bottom = '20px';
             el.style.left = '50%';
             el.style.transform = 'translateX(-50%)';
-            el.style.backgroundColor = '#06b6d4';
+            el.style.backgroundColor = '#10b981';
             el.style.color = 'white';
-            el.style.padding = '8px 16px';
-            el.style.borderRadius = '20px';
+            el.style.padding = '12px 24px';
+            el.style.borderRadius = '12px';
             el.style.zIndex = '10000';
             el.style.boxShadow = '0 4px 12px rgba(0,0,0,0.3)';
+            el.style.fontWeight = 'bold';
+            el.style.fontSize = '14px';
             document.body.appendChild(el);
             setTimeout(() => el.remove(), 2000);
             setContextMenu(null);
         } catch (err) {
             console.error('Copy failed', err);
-            alert('Failed to copy text. Please try selecting manually.');
+            alert('Failed to copy. Please try selecting the text manually.');
         }
     };
 
     const togglePinMessage = (msgId) => {
+        console.log('Pin/Unpin message:', msgId);
         if (pinnedMessages.includes(msgId)) {
             setPinnedMessages(prev => prev.filter(id => id !== msgId));
+            console.log('Message unpinned');
         } else {
             setPinnedMessages(prev => [...prev, msgId]);
+            console.log('Message pinned');
+        }
+        setContextMenu(null);
+    };
+
+    const toggleStarMessage = (msgId) => {
+        console.log('Star/Unstar message:', msgId);
+        if (starredMessages.includes(msgId)) {
+            setStarredMessages(prev => prev.filter(id => id !== msgId));
+            console.log('Message unstarred');
+        } else {
+            setStarredMessages(prev => [...prev, msgId]);
+            console.log('Message starred');
+        }
+        setContextMenu(null);
+    };
+
+    const handleForwardMessage = (msg) => {
+        console.log('Forward message:', msg);
+        setMessageToForward(msg);
+        setIsForwardModalOpen(true);
+        setContextMenu(null);
+    };
+
+    const handleSaveAs = async (msg) => {
+        try {
+            let content = msg.content;
+            let filename = 'message.txt';
+
+            if (msg.fileUrl) {
+                // Download the file
+                const response = await fetch(msg.fileUrl);
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = msg.fileName || 'download';
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+            } else {
+                // Save text content
+                const blob = new Blob([content], { type: 'text/plain' });
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+            }
+            setContextMenu(null);
+        } catch (err) {
+            console.error('Save failed:', err);
+            alert('Failed to save message');
+        }
+    };
+
+    const handleReportMessage = async (msg) => {
+        const reason = prompt('Please provide a reason for reporting this message:');
+        if (reason) {
+            try {
+                // In a real app, send to backend
+                await conversationsAPI.reportConversation(chat._id, `Message reported: ${msg.content.substring(0, 50)}... Reason: ${reason}`);
+                alert('Message reported. Thank you for helping keep our community safe.');
+            } catch (err) {
+                alert('Failed to submit report');
+            }
         }
         setContextMenu(null);
     };
 
     const renderMessageContent = (content, query) => {
         if (!content) return null;
-        
+
         // Check for code blocks
         const codeBlockRegex = /```([\s\S]*?)```/g;
         if (codeBlockRegex.test(content)) {
@@ -391,7 +494,7 @@ const ChatWindow = ({ chat, onBack, onUpdateChat }) => {
                             return (
                                 <div key={index} className="relative group/code text-left my-2">
                                     <div className="absolute right-2 top-2 opacity-0 group-hover/code:opacity-100 transition-opacity z-10 w-fit">
-                                        <button 
+                                        <button
                                             onClick={(e) => { e.stopPropagation(); copyToClipboard(part.trim()); }}
                                             className="p-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-xs font-mono flex items-center gap-1 text-gray-300 hover:text-white"
                                         >
@@ -422,7 +525,7 @@ const ChatWindow = ({ chat, onBack, onUpdateChat }) => {
             if (duration === '8h') mutedUntil = new Date(now.setHours(now.getHours() + 8));
             if (duration === '24h') mutedUntil = new Date(now.setHours(now.getHours() + 24));
             if (duration === 'always') mutedUntil = new Date(9999, 0, 1);
-        
+
             await conversationsAPI.updateSettings(chat._id, 'mute', mutedUntil);
             alert(mutedUntil ? `Chat muted until ${mutedUntil.toLocaleString()}` : 'Chat unmuted');
             setIsMenuOpen(false);
@@ -441,10 +544,24 @@ const ChatWindow = ({ chat, onBack, onUpdateChat }) => {
 
     const handleMarkUnread = async () => {
         try {
-            await conversationsAPI.updateSettings(chat._id, 'unread', true);
-            setIsMenuOpen(false);
-            if (onBack) onBack();
-        } catch(err) {
+            const res = await conversationsAPI.updateSettings(chat._id, 'unread', true);
+            if (res.success) {
+                // Optimistically update parent state
+                const updatedChat = { ...chat };
+                if (!updatedChat.userSettings) updatedChat.userSettings = [];
+
+                const userIndex = updatedChat.userSettings.findIndex(s => s.userId === currentUserId || s.userId?._id === currentUserId);
+                if (userIndex > -1) {
+                    updatedChat.userSettings[userIndex] = { ...updatedChat.userSettings[userIndex], isUnread: true };
+                } else {
+                    updatedChat.userSettings.push({ userId: currentUserId, isUnread: true });
+                }
+
+                onUpdateChat(updatedChat);
+                setIsMenuOpen(false);
+                if (onBack) onBack();
+            }
+        } catch (err) {
             console.error(err);
             alert('Failed to mark as unread');
         }
@@ -455,8 +572,16 @@ const ChatWindow = ({ chat, onBack, onUpdateChat }) => {
         try {
             await conversationsAPI.updateSettings(chat._id, 'clear', null);
             setMessages([]);
+
+            // Update the conversation preview to show no last message
+            const updatedChat = {
+                ...chat,
+                lastMessage: { content: 'Chat cleared' }
+            };
+            onUpdateChat(updatedChat);
+
             setIsMenuOpen(false);
-        } catch(err) {
+        } catch (err) {
             alert('Failed to clear chat');
         }
     };
@@ -467,7 +592,7 @@ const ChatWindow = ({ chat, onBack, onUpdateChat }) => {
             try {
                 await conversationsAPI.reportConversation(chat._id, reason);
                 alert("Report submitted. Thank you helping keep our community safe.");
-            } catch(err) {
+            } catch (err) {
                 alert('Failed to submit report');
             }
         }
@@ -541,7 +666,7 @@ const ChatWindow = ({ chat, onBack, onUpdateChat }) => {
             }
         } catch (err) {
             console.error('Upload failed:', err);
-            
+
             // Check for security block
             if (err.response?.data?.securityBlock) {
                 alert(`🔒 Security Alert\n\n${err.response.data.message}\n\nReason: ${err.response.data.reason || 'Unknown'}\n\nYour file has been blocked and removed for security reasons. Please ensure you are only sharing safe files.`);
@@ -572,11 +697,11 @@ const ChatWindow = ({ chat, onBack, onUpdateChat }) => {
                         'Authorization': `Bearer ${localStorage.getItem('token')}`
                     }
                 });
-                
+
                 if (!response.ok) {
                     throw new Error('Download failed');
                 }
-                
+
                 const blob = await response.blob();
                 const url = window.URL.createObjectURL(blob);
                 const a = document.createElement('a');
@@ -596,11 +721,11 @@ const ChatWindow = ({ chat, onBack, onUpdateChat }) => {
         if (msg.messageType === 'image') {
             return (
                 <div className="mb-2 rounded-lg overflow-hidden ring-1 ring-white/10">
-                    <img 
-                        src={msg.fileUrl} 
-                        alt={msg.fileName || 'Image'} 
-                        className="max-w-full h-auto max-h-80 object-cover cursor-pointer hover:opacity-90 transition-opacity" 
-                        onClick={() => window.open(msg.fileUrl, '_blank')} 
+                    <img
+                        src={msg.fileUrl}
+                        alt={msg.fileName || 'Image'}
+                        className="max-w-full h-auto max-h-80 object-cover cursor-pointer hover:opacity-90 transition-opacity"
+                        onClick={() => window.open(msg.fileUrl, '_blank')}
                     />
                 </div>
             );
@@ -619,11 +744,10 @@ const ChatWindow = ({ chat, onBack, onUpdateChat }) => {
         const isMe = msg.sender?._id === currentUser?.id || msg.sender === currentUser?.id;
 
         return (
-            <div className={`rounded-xl p-4 border ${
-                isMe 
-                    ? 'bg-white/10 border-white/20' 
-                    : 'bg-black/20 border-white/10'
-            } max-w-sm`}>
+            <div className={`rounded-xl p-4 border ${isMe
+                ? 'bg-white/10 border-white/20'
+                : 'bg-black/20 border-white/10'
+                } max-w-sm`}>
                 <div className="flex items-start gap-3">
                     <div className="text-4xl flex-shrink-0">{fileIcon}</div>
                     <div className="flex-1 min-w-0">
@@ -634,7 +758,7 @@ const ChatWindow = ({ chat, onBack, onUpdateChat }) => {
                             {formatFileSize(msg.fileSize)}
                             {msg.mimeType && ` • ${msg.mimeType.split('/')[1].toUpperCase()}`}
                         </p>
-                        <button 
+                        <button
                             onClick={handleDownload}
                             className="mt-3 flex items-center gap-2 px-3 py-1.5 bg-[#06b6d4] hover:bg-[#0891b2] text-white rounded-lg text-xs font-semibold transition-all active:scale-95"
                         >
@@ -676,33 +800,33 @@ const ChatWindow = ({ chat, onBack, onUpdateChat }) => {
 
     return (
         <div className="flex-1 flex flex-col h-full bg-[#13131a] relative">
-            <input 
-                type="file" 
-                ref={fileInputRef} 
-                onChange={handleFileChange} 
-                accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,.rar,.7z,audio/*" 
-                className="hidden" 
+            <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleFileChange}
+                accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,.rar,.7z,audio/*"
+                className="hidden"
             />
 
             {/* Header */}
             {isSelectionMode ? (
                 <div className="p-4 border-b border-white/10 flex items-center justify-between bg-[#06b6d4]/10 z-10 animate-in slide-in-from-top-2">
-                     <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-4">
                         <button onClick={cancelSelectionMode} className="w-10 h-10 flex items-center justify-center rounded-xl hover:bg-white/10 text-white transition-all">
                             <X size={20} />
                         </button>
                         <div>
                             <h3 className="font-bold text-white text-lg">{selectedMessageIds.length} Selected</h3>
                         </div>
-                     </div>
-                     <button 
+                    </div>
+                    <button
                         onClick={handleBulkDelete}
                         disabled={selectedMessageIds.length === 0}
                         className="flex items-center gap-2 px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-xl font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-red-500/20"
-                     >
+                    >
                         <Trash2 size={18} />
                         <span>Delete</span>
-                     </button>
+                    </button>
                 </div>
             ) : (
                 <div className="p-4 border-b border-white/10 flex flex-col gap-2 bg-white/5 z-10">
@@ -722,34 +846,34 @@ const ChatWindow = ({ chat, onBack, onUpdateChat }) => {
                         </div>
 
                         <div className="flex items-center gap-2">
-                            <button 
-                                onClick={toggleSearch} 
+                            <button
+                                onClick={toggleSearch}
                                 className={`w-10 h-10 flex items-center justify-center rounded-xl transition-all ${isSearchOpen ? 'bg-[#06b6d4] text-white' : 'hover:bg-white/10 text-gray-400 hover:text-white'}`}
                             >
                                 <Search size={20} />
                             </button>
                             <div className="relative" ref={menuRef}>
-                                <button 
-                                    onClick={() => setIsMenuOpen(!isMenuOpen)} 
+                                <button
+                                    onClick={() => setIsMenuOpen(!isMenuOpen)}
                                     className={`w-10 h-10 flex items-center justify-center rounded-xl transition-all ${isMenuOpen ? 'bg-white/10 text-white' : 'hover:bg-white/10 text-gray-400 hover:text-white'}`}
                                 >
                                     <MoreVertical size={20} />
                                 </button>
-                                
+
                                 {/* Dropdown Menu */}
                                 {isMenuOpen && (
                                     <div className="absolute right-0 top-12 w-72 bg-[#1a1a24] border border-white/10 rounded-2xl shadow-2xl z-[100] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200 origin-top-right">
                                         <div className="p-1.5 space-y-0.5">
                                             <div className="relative group">
-                                                <button 
-                                                    onClick={() => setShowMuteOptions(!showMuteOptions)} 
+                                                <button
+                                                    onClick={() => setShowMuteOptions(!showMuteOptions)}
                                                     className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-white/5 rounded-xl text-left text-sm text-gray-300 hover:text-white transition-colors"
                                                 >
                                                     <BellOff size={16} />
                                                     <span className="flex-1">Mute Notifications</span>
                                                     <ChevronRight size={14} className={`transition-transform ${showMuteOptions ? 'rotate-90' : ''}`} />
                                                 </button>
-                                                
+
                                                 {showMuteOptions && (
                                                     <div className="mt-1 ml-4 border-l border-white/10 pl-2 space-y-1 animate-in slide-in-from-left-2 duration-200">
                                                         <button onClick={() => handleMute('1h')} className="w-full text-left px-3 py-2 text-xs text-gray-400 hover:text-[#06b6d4] hover:bg-white/5 rounded-lg transition-colors">1 Hour</button>
@@ -844,8 +968,8 @@ const ChatWindow = ({ chat, onBack, onUpdateChat }) => {
                         const isSelected = selectedMessageIds.includes(msg._id);
 
                         return (
-                            <div 
-                                key={msg._id} 
+                            <div
+                                key={msg._id}
                                 id={`msg-${msg._id}`}
                                 onClick={() => isSelectionMode && handleSelectMessage(msg._id)}
                                 className={`flex ${isMe ? 'justify-end' : 'justify-start'} group relative mb-6 transition-all duration-500 ${isCurrentMatch ? 'scale-[1.02]' : ''} ${isSelectionMode ? 'cursor-pointer hover:bg-white/5 -mx-4 px-4 py-2' : ''}`}
@@ -866,21 +990,32 @@ const ChatWindow = ({ chat, onBack, onUpdateChat }) => {
                                             ? 'bg-gradient-to-br from-[#06b6d4] to-[#0891b2] text-white rounded-br-sm shadow-lg shadow-[#06b6d4]/20'
                                             : 'bg-white/10 text-white rounded-bl-sm border border-white/10'
                                             } ${isCurrentMatch ? 'ring-2 ring-yellow-400 shadow-yellow-400/20' : ''} ${pinnedMessages.includes(msg._id) ? 'ring-1 ring-[#06b6d4] bg-[#06b6d4]/10' : ''}`}>
-                                        
+
                                         {pinnedMessages.includes(msg._id) && (
                                             <div className="absolute -top-2 -right-2 bg-[#06b6d4] text-white p-0.5 rounded-full shadow-lg z-10">
                                                 <Pin size={10} />
                                             </div>
                                         )}
 
+                                        {starredMessages.includes(msg._id) && (
+                                            <div className="absolute -top-2 -right-8 bg-yellow-500 text-white p-0.5 rounded-full shadow-lg z-10">
+                                                <Star size={10} className="fill-white" />
+                                            </div>
+                                        )}
+
                                         {/* File attachment rendering */}
                                         {msg.fileUrl && renderFileCard(msg)}
-                                        
-                                        {msg.replyTo && ( // Visual indicator for replies (mockup logic as we don't fetch linked msg yet fully, but structure is here)
-                                           <div className={`mb-2 pl-3 border-l-2 ${isMe ? 'border-white/30' : 'border-[#06b6d4]'} opacity-75 text-xs`}>
-                                               Replying to a message...
-                                           </div>
-                                        )}
+
+                                        {msg.replyTo && (() => {
+                                            // Find the replied message
+                                            const repliedMsg = messages.find(m => m._id === msg.replyTo);
+                                            return (
+                                                <div className={`mb-2 pl-3 border-l-2 ${isMe ? 'border-white/30' : 'border-[#06b6d4]'} bg-black/20 rounded-lg p-2 text-xs`}>
+                                                    <p className="text-[#06b6d4] font-semibold mb-0.5">{repliedMsg?.sender?.name || 'User'}</p>
+                                                    <p className="text-gray-400 line-clamp-2">{repliedMsg?.content || 'Message'}</p>
+                                                </div>
+                                            );
+                                        })()}
 
                                         {/* Text content (only if not a file-only message or has additional text) */}
                                         {(!msg.fileUrl || (msg.content && !msg.content.startsWith('Sent a'))) && renderMessageContent(msg.content, searchQuery)}
@@ -896,11 +1031,15 @@ const ChatWindow = ({ chat, onBack, onUpdateChat }) => {
                                                 {msg.reactions.length > 1 && <span className="text-[9px] text-gray-400 bg-[#1a1a24] px-1.5 rounded-full border border-white/10 flex items-center">{msg.reactions.length}</span>}
                                             </div>
                                         )}
-                                        
+
                                         {/* Message Actions Menu (Absolute) */}
-                                        <div className={`absolute ${isMe ? '-left-12' : '-right-12'} top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col gap-1`}>
-                                            <button onClick={() => setActiveReactionMenu(msg._id)} className="p-2 hover:bg-white/10 rounded-full text-gray-500 hover:text-white transition-colors"><Smile size={16} /></button>
-                                            <button onClick={(e) => handleContextMenu(e, msg)} className="p-2 hover:bg-white/10 rounded-full text-gray-500 hover:text-white transition-colors md:hidden"><MoreVertical size={16} /></button>
+                                        <div className={`absolute ${isMe ? '-left-14' : '-right-14'} top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col gap-1`}>
+                                            <button onClick={() => setActiveReactionMenu(msg._id)} className="p-2 hover:bg-white/10 rounded-full text-gray-500 hover:text-white transition-colors" title="React">
+                                                <Smile size={16} />
+                                            </button>
+                                            <button onClick={(e) => { e.preventDefault(); handleContextMenu(e, msg); }} className="p-2 hover:bg-white/10 rounded-full text-gray-500 hover:text-white transition-colors" title="More options">
+                                                <ChevronDown size={16} />
+                                            </button>
                                         </div>
                                     </div>
                                     <p className="text-[10px] text-gray-600 mt-1.5 ml-1 font-medium">{new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
@@ -933,7 +1072,7 @@ const ChatWindow = ({ chat, onBack, onUpdateChat }) => {
                 )}
                 <div ref={messagesEndRef} />
             </div>
-            
+
             {/* Group Info Modal */}
             {showGroupStats && (
                 <div className="absolute inset-0 z-50 bg-[#0a0a0f]/95 backdrop-blur-2xl flex flex-col animate-in slide-in-from-right duration-500">
@@ -959,7 +1098,7 @@ const ChatWindow = ({ chat, onBack, onUpdateChat }) => {
                             </div>
                             <h3 className="text-3xl font-bold mb-2 text-white">{chat.isGroup ? chat.groupName : otherParticipant?.name}</h3>
                             <p className="text-gray-400 font-medium">
-                                {chat.isGroup 
+                                {chat.isGroup
                                     ? `Created for world-class conversations • ${chat.participants.length} members`
                                     : otherParticipant?.email
                                 }
@@ -1033,98 +1172,184 @@ const ChatWindow = ({ chat, onBack, onUpdateChat }) => {
                     </div>
                 )}
                 <div className="p-4 md:p-6">
-                <div className="flex items-center gap-3 md:gap-4 max-w-5xl mx-auto">
-                    <div className="flex items-center gap-1">
-                        <button onClick={() => fileInputRef.current?.click()} disabled={isUploading} className="w-10 h-10 md:w-12 md:h-12 flex items-center justify-center rounded-2xl hover:bg-white/10 text-gray-400 hover:text-[#06b6d4] transition-all">
-                            {isUploading ? <Loader2 className="animate-spin" size={20} /> : <Paperclip size={20} />}
-                        </button>
-                    </div>
-
-                    <div className="flex-1 relative">
-                        <input
-                            type="text"
-                            value={message}
-                            onChange={handeInputChange}
-                            onKeyPress={(e) => e.key === 'Enter' && handleSend()}
-                            placeholder="Type a message..."
-                            className="w-full px-5 py-3 md:py-4 rounded-2xl bg-white/10 border border-white/10 outline-none focus:border-[#06b6d4] focus:bg-white/15 text-white placeholder-gray-500 transition-all font-medium"
-                        />
-                        <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-2">
-                            <button 
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    setShowEmojiPicker(!showEmojiPicker);
-                                }} 
-                                className={`emoji-toggle-btn transition-colors ${showEmojiPicker ? 'text-[#06b6d4]' : 'text-gray-500 hover:text-[#06b6d4]'}`}
-                            >
-                                <Smile size={22} />
+                    <div className="flex items-center gap-3 md:gap-4 max-w-5xl mx-auto">
+                        <div className="flex items-center gap-1">
+                            <button onClick={() => fileInputRef.current?.click()} disabled={isUploading} className="w-10 h-10 md:w-12 md:h-12 flex items-center justify-center rounded-2xl hover:bg-white/10 text-gray-400 hover:text-[#06b6d4] transition-all">
+                                {isUploading ? <Loader2 className="animate-spin" size={20} /> : <Paperclip size={20} />}
                             </button>
                         </div>
 
-                        {showEmojiPicker && (
-                            <div 
-                                ref={emojiPickerRef}
-                                className="absolute bottom-full right-0 mb-4 z-[9999] shadow-2xl animate-in slide-in-from-bottom-2 duration-200"
-                            >
-                                <EmojiPicker
-                                    theme={Theme.DARK}
-                                    onEmojiClick={(emojiData) => {
-                                        setMessage(prev => prev + emojiData.emoji);
-                                        // Keeping it open like WhatsApp does, but you can close it if you want
-                                        // setShowEmojiPicker(false);
+                        <div className="flex-1 relative">
+                            <input
+                                type="text"
+                                value={message}
+                                onChange={handeInputChange}
+                                onKeyPress={(e) => e.key === 'Enter' && handleSend()}
+                                placeholder="Type a message..."
+                                className="w-full px-5 py-3 md:py-4 rounded-2xl bg-white/10 border border-white/10 outline-none focus:border-[#06b6d4] focus:bg-white/15 text-white placeholder-gray-500 transition-all font-medium"
+                            />
+                            <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-2">
+                                <button
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        setShowEmojiPicker(!showEmojiPicker);
                                     }}
-                                    autoFocusSearch={false}
-                                    searchPlaceholder="Search emojis..."
-                                    width={350}
-                                    height={450}
-                                />
+                                    className={`emoji-toggle-btn transition-colors ${showEmojiPicker ? 'text-[#06b6d4]' : 'text-gray-500 hover:text-[#06b6d4]'}`}
+                                >
+                                    <Smile size={22} />
+                                </button>
                             </div>
-                        )}
-                    </div>
 
-                    <button onClick={() => handleSend()} className="w-10 h-10 md:w-14 md:h-14 flex items-center justify-center rounded-2xl bg-gradient-to-br from-[#06b6d4] to-[#0891b2] text-white shadow-xl shadow-[#06b6d4]/30 hover:scale-105 transition-all transform active:scale-95">
-                        <Send size={22} />
-                    </button>
+                            {showEmojiPicker && (
+                                <>
+                                    {/* Subtle backdrop for mobile */}
+                                    <div
+                                        className="fixed inset-0 bg-black/20 backdrop-blur-sm z-[9998] md:hidden"
+                                        onClick={() => setShowEmojiPicker(false)}
+                                    />
+
+                                    <div
+                                        ref={emojiPickerRef}
+                                        className="fixed md:absolute bottom-20 md:bottom-full left-1/2 md:left-auto md:right-0 -translate-x-1/2 md:translate-x-0 md:mb-4 z-[9999] animate-in slide-in-from-bottom-4 md:slide-in-from-bottom-2 duration-300"
+                                    >
+                                        <div className="relative backdrop-blur-2xl bg-[#1a1a24]/98 border border-white/20 rounded-3xl shadow-2xl overflow-hidden ring-1 ring-white/10">
+                                            {/* Custom Header with Close Button */}
+                                            <div className="flex items-center justify-between px-6 py-4 border-b border-white/10 bg-gradient-to-r from-[#06b6d4]/10 to-[#0891b2]/10">
+                                                <div className="flex items-center gap-3">
+                                                    <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-[#06b6d4] to-[#0891b2] flex items-center justify-center shadow-lg shadow-[#06b6d4]/30">
+                                                        <Smile size={18} className="text-white" />
+                                                    </div>
+                                                    <h3 className="text-white font-bold text-sm">Pick an Emoji</h3>
+                                                </div>
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setShowEmojiPicker(false);
+                                                    }}
+                                                    className="w-8 h-8 rounded-xl hover:bg-white/10 flex items-center justify-center text-gray-400 hover:text-white transition-all group active:scale-95"
+                                                >
+                                                    <X size={18} className="group-hover:rotate-90 transition-transform duration-300" />
+                                                </button>
+                                            </div>
+
+                                            {/* Emoji Picker with Custom Styling */}
+                                            <div className="emoji-picker-custom-wrapper">
+                                                <EmojiPicker
+                                                    theme={Theme.DARK}
+                                                    onEmojiClick={(emojiData) => {
+                                                        setMessage(prev => prev + emojiData.emoji);
+                                                    }}
+                                                    autoFocusSearch={false}
+                                                    searchPlaceholder="Search emojis..."
+                                                    width={380}
+                                                    height={420}
+                                                    previewConfig={{
+                                                        showPreview: false
+                                                    }}
+                                                    skinTonesDisabled={false}
+                                                    searchDisabled={false}
+                                                    emojiStyle="native"
+                                                    lazyLoadEmojis={true}
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
+                                </>
+                            )}
+                        </div>
+
+                        <button onClick={() => handleSend()} className="w-10 h-10 md:w-14 md:h-14 flex items-center justify-center rounded-2xl bg-gradient-to-br from-[#06b6d4] to-[#0891b2] text-white shadow-xl shadow-[#06b6d4]/30 hover:scale-105 transition-all transform active:scale-95">
+                            <Send size={22} />
+                        </button>
+                    </div>
                 </div>
             </div>
-        </div>
             {/* Context Menu Portal */}
-            {contextMenu && (
-                <div 
-                    className="fixed z-[9999] bg-[#1a1a24] border border-white/10 rounded-xl shadow-2xl w-48 overflow-hidden animate-in zoom-in-95 duration-200"
-                    style={{ top: Math.min(contextMenu.y, window.innerHeight - 300), left: Math.min(contextMenu.x, window.innerWidth - 200) }}
-                    onClick={(e) => e.stopPropagation()}
-                >
-                    <div className="p-1 space-y-0.5">
-                        <button onClick={() => { setReplyingTo(contextMenu.message); setContextMenu(null); }} className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-gray-300 hover:text-white hover:bg-white/10 rounded-lg transition-colors">
-                            <Reply size={14} /> Reply
-                        </button>
-                        <button onClick={() => { copyToClipboard(contextMenu.message.content); }} className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-gray-300 hover:text-white hover:bg-white/10 rounded-lg transition-colors">
-                            <Copy size={14} /> Copy
-                        </button>
-                        <button className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-gray-300 hover:text-white hover:bg-white/10 rounded-lg transition-colors">
-                            <Forward size={14} /> Forward
-                        </button>
-                        <button onClick={() => togglePinMessage(contextMenu.message._id)} className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-gray-300 hover:text-white hover:bg-white/10 rounded-lg transition-colors">
-                            <Pin size={14} /> {pinnedMessages.includes(contextMenu.message._id) ? 'Unpin' : 'Pin'}
-                        </button>
-                        <button className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-gray-300 hover:text-white hover:bg-white/10 rounded-lg transition-colors">
-                            <Star size={14} /> Star
-                        </button>
-                        <button onClick={() => { enableSelectionMode(contextMenu.message._id); }} className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-gray-300 hover:text-white hover:bg-white/10 rounded-lg transition-colors">
-                            <CheckSquare size={14} /> Select (Bulk Actions)
-                        </button>
-                        
-                        <div className="h-px bg-white/10 my-1"></div>
-                        
-                        <button className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-lg transition-colors">
-                            <Flag size={14} /> Report
-                        </button>
-                        {((contextMenu.message.sender?._id === currentUser?.id) || (contextMenu.message.sender === currentUser?.id)) && (
-                            <button onClick={() => handleDeleteMessage(contextMenu.message._id)} className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-lg transition-colors">
-                                <Trash2 size={14} /> Delete
+            {contextMenu && (() => {
+                // Calculate if menu should appear above or below
+                const menuHeight = 400; // Approximate menu height
+                const spaceBelow = window.innerHeight - contextMenu.y;
+                const shouldShowAbove = spaceBelow < menuHeight;
+
+                const top = shouldShowAbove
+                    ? Math.max(10, contextMenu.y - menuHeight)
+                    : Math.min(contextMenu.y, window.innerHeight - menuHeight);
+                const left = Math.min(contextMenu.x, window.innerWidth - 220);
+
+                return (
+                    <div
+                        className="fixed z-[9999] bg-[#1a1a24] border border-white/10 rounded-xl shadow-2xl w-52 overflow-hidden animate-in zoom-in-95 duration-200"
+                        style={{ top: `${top}px`, left: `${left}px` }}
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div className="p-1 space-y-0.5">
+                            <button onClick={() => { setReplyingTo(contextMenu.message); setContextMenu(null); }} className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-gray-300 hover:text-white hover:bg-white/10 rounded-lg transition-colors">
+                                <Reply size={14} /> Reply
                             </button>
-                        )}
+                            <button onClick={() => {
+                                const textToCopy = contextMenu.message.fileUrl
+                                    ? `${contextMenu.message.fileName || 'File'}: ${contextMenu.message.fileUrl}`
+                                    : contextMenu.message.content;
+                                copyToClipboard(textToCopy);
+                            }} className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-gray-300 hover:text-white hover:bg-white/10 rounded-lg transition-colors">
+                                <Copy size={14} /> Copy {contextMenu.message.fileUrl ? 'Link' : 'Text'}
+                            </button>
+                            <button onClick={() => handleForwardMessage(contextMenu.message)} className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-gray-300 hover:text-white hover:bg-white/10 rounded-lg transition-colors">
+                                <Forward size={14} /> Forward
+                            </button>
+                            <button onClick={() => togglePinMessage(contextMenu.message._id)} className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-gray-300 hover:text-white hover:bg-white/10 rounded-lg transition-colors">
+                                <Pin size={14} /> {pinnedMessages.includes(contextMenu.message._id) ? 'Unpin' : 'Pin'}
+                            </button>
+                            <button onClick={() => toggleStarMessage(contextMenu.message._id)} className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-gray-300 hover:text-white hover:bg-white/10 rounded-lg transition-colors">
+                                <Star size={14} className={starredMessages.includes(contextMenu.message._id) ? 'fill-yellow-400 text-yellow-400' : ''} /> {starredMessages.includes(contextMenu.message._id) ? 'Unstar' : 'Star'}
+                            </button>
+                            <button onClick={() => { enableSelectionMode(contextMenu.message._id); }} className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-gray-300 hover:text-white hover:bg-white/10 rounded-lg transition-colors">
+                                <CheckSquare size={14} /> Select
+                            </button>
+                            <button onClick={() => handleSaveAs(contextMenu.message)} className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-gray-300 hover:text-white hover:bg-white/10 rounded-lg transition-colors">
+                                <Download size={14} /> Save as
+                            </button>
+
+                            <div className="h-px bg-white/10 my-1"></div>
+
+                            <button onClick={() => handleReportMessage(contextMenu.message)} className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-lg transition-colors">
+                                <Flag size={14} /> Report
+                            </button>
+                            {((contextMenu.message.sender?._id === currentUser?.id) || (contextMenu.message.sender === currentUser?.id)) && (
+                                <button onClick={() => handleDeleteMessage(contextMenu.message._id)} className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-lg transition-colors">
+                                    <Trash2 size={14} /> Delete
+                                </button>
+                            )}
+                        </div>
+                    </div>
+                );
+            })()}
+
+            {/* Forward Message Modal */}
+            {isForwardModalOpen && messageToForward && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+                    <div className="w-full max-w-md bg-[#13131a] rounded-3xl border border-white/10 p-8 shadow-2xl relative animate-in zoom-in duration-300">
+                        <button onClick={() => { setIsForwardModalOpen(false); setMessageToForward(null); }} className="absolute top-4 right-4 text-gray-500 hover:text-white">
+                            <X size={20} />
+                        </button>
+                        <h3 className="text-2xl font-bold text-white mb-2">Forward Message</h3>
+                        <p className="text-gray-400 text-sm mb-6">Select a conversation to forward this message to.</p>
+
+                        <div className="bg-white/5 rounded-xl p-4 mb-6 border border-white/10">
+                            <p className="text-sm text-gray-300 line-clamp-3">{messageToForward.content || 'File attachment'}</p>
+                        </div>
+
+                        <div className="space-y-2 max-h-60 overflow-y-auto scrollbar-thin scrollbar-thumb-white/10">
+                            <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">This feature will be available soon</p>
+                            <p className="text-sm text-gray-400">You'll be able to forward messages to your contacts and groups.</p>
+                        </div>
+
+                        <button
+                            onClick={() => { setIsForwardModalOpen(false); setMessageToForward(null); }}
+                            className="w-full mt-6 py-3 bg-[#06b6d4] hover:bg-[#0891b2] text-white rounded-xl font-bold transition-all"
+                        >
+                            Close
+                        </button>
                     </div>
                 </div>
             )}
